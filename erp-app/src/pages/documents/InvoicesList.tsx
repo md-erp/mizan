@@ -6,6 +6,7 @@ import Drawer from '../../components/ui/Drawer'
 import InvoiceForm from '../../components/forms/InvoiceForm'
 import DocumentDetail from '../../components/DocumentDetail'
 import BatchToolbar from '../../components/ui/BatchToolbar'
+import Pagination from '../../components/ui/Pagination'
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts'
 import type { Document, PaginatedResponse } from '../../types'
 
@@ -88,6 +89,12 @@ export default function InvoicesList({ docType, hideNewButton = false }: Props) 
   }, [docType, search, page])
 
   useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    const handler = () => load()
+    window.addEventListener('app:refresh', handler)
+    return () => window.removeEventListener('app:refresh', handler)
+  }, [load])
 
   const formatAmount = (n: number) =>
     new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n) + ' MAD'
@@ -175,14 +182,7 @@ export default function InvoicesList({ docType, hideNewButton = false }: Props) 
 
       {/* Pagination */}
       {data && data.total > 50 && (
-        <div className="flex items-center justify-between text-sm text-gray-500">
-          <span>{data.total} résultats</span>
-          <div className="flex gap-2">
-            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="btn-secondary btn-sm">←</button>
-            <span className="px-3 py-1.5">Page {page}</span>
-            <button onClick={() => setPage(p => p + 1)} disabled={page * 50 >= data.total} className="btn-secondary btn-sm">→</button>
-          </div>
-        </div>
+        <Pagination page={page} total={data.total} limit={50} onChange={setPage} />
       )}
 
       <Modal

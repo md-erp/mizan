@@ -11,7 +11,11 @@ const schema = z.object({
   address:    z.string().optional(),
   email:      z.string().email('Email invalide').optional().or(z.literal('')),
   phone:      z.string().optional(),
-  ice:        z.string().optional(),
+  ice:        z.string()
+    .optional()
+    .refine(v => !v || v.trim() === '' || /^\d{15}$/.test(v.trim()), {
+      message: 'ICE doit contenir exactement 15 chiffres',
+    }),
   if_number:  z.string().optional(),
   rc:         z.string().optional(),
   credit_limit: z.coerce.number().min(0).optional(),
@@ -64,7 +68,7 @@ export default function PartyForm({ type, initial, onSaved, onCancel }: Props) {
   }
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+    <div className="space-y-4">
       {/* Nom */}
       <FormField label="Nom" required error={errors.name?.message}>
         <input {...register('name')} className={`input ${errors.name ? 'input-error' : ''}`}
@@ -73,8 +77,9 @@ export default function PartyForm({ type, initial, onSaved, onCancel }: Props) {
 
       {/* ICE / IF / RC */}
       <div className="grid grid-cols-3 gap-3">
-        <FormField label="ICE" error={errors.ice?.message}>
-          <input {...register('ice')} className="input" placeholder="000000000000000" />
+        <FormField label="ICE" error={errors.ice?.message} hint="15 chiffres">
+          <input {...register('ice')} className={`input font-mono ${errors.ice ? 'input-error' : ''}`}
+            placeholder="000000000000000" maxLength={15} />
         </FormField>
         <FormField label="IF" error={errors.if_number?.message}>
           <input {...register('if_number')} className="input" placeholder="12345678" />
@@ -117,10 +122,10 @@ export default function PartyForm({ type, initial, onSaved, onCancel }: Props) {
         <button type="button" onClick={onCancel} className="btn-secondary flex-1 justify-center">
           Annuler
         </button>
-        <button type="submit" disabled={isSubmitting} className="btn-primary flex-1 justify-center">
+        <button type="button" disabled={isSubmitting} onClick={handleSubmit(onSubmit)} className="btn-primary flex-1 justify-center">
           {isSubmitting ? 'Enregistrement...' : isEdit ? 'Modifier' : `Créer ${label}`}
         </button>
       </div>
-    </form>
+    </div>
   )
 }

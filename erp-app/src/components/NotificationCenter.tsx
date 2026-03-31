@@ -12,6 +12,7 @@ interface Notification {
 }
 
 const ICONS = { cheque: '🏦', stock: '📦', invoice: '📄' }
+
 const SEVERITY_COLORS = {
   error:   'border-l-red-500 bg-red-50 dark:bg-red-900/10',
   warning: 'border-l-orange-400 bg-orange-50 dark:bg-orange-900/10',
@@ -19,13 +20,13 @@ const SEVERITY_COLORS = {
 }
 
 export default function NotificationCenter() {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen]                   = useState(false)
   const [notifications, setNotifications] = useState<Notification[]>([])
+  const [dismissed, setDismissed]         = useState<Set<string>>(new Set())
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     loadNotifications()
-    // تحديث كل 5 دقائق
     const interval = setInterval(loadNotifications, 5 * 60 * 1000)
     return () => clearInterval(interval)
   }, [])
@@ -45,11 +46,21 @@ export default function NotificationCenter() {
     } catch { /* silencieux */ }
   }
 
-  const errorCount   = notifications.filter(n => n.severity === 'error').length
-  const warningCount = notifications.filter(n => n.severity === 'warning').length
-  const totalCount   = notifications.length
+  function dismiss(id: string) {
+    setDismissed(prev => new Set([...prev, id]))
+    api.markNotificationRead(id as any).catch(() => {})
+  }
 
-  const badgeColor = errorCount > 0 ? 'bg-red-500' : warningCount > 0 ? 'bg-orange-400' : 'bg-blue-500'
+  function dismissAll() {
+    const ids = new Set(visible.map(n => n.id))
+    setDismissed(prev => new Set([...prev, ...ids]))
+  }
+
+  const visible      = notifications.filter(n => !dismissed.has(n.id))
+  const errorCount   = visible.filter(n => n.severity === 'error').length
+  const warningCount = visible.filter(n => n.severity === 'warning').length
+  const totalCount   = visible.length
+  const badgeColor   = errorCount > 0 ? 'bg-red-500' : warningCount > 0 ? 'bg-orange-400' : 'bg-blue-500'
 
   return (
     <div ref={ref} className="relative">
@@ -72,21 +83,27 @@ export default function NotificationCenter() {
             <span className="font-semibold text-sm">Notifications</span>
             <div className="flex items-center gap-2">
               {totalCount > 0 && (
-                <span className="text-xs text-gray-400">{totalCount} alerte(s)</span>
+                <>
+                  <span className="text-xs text-gray-400">{totalCount} alerte(s)</span>
+                  <button onClick={dismissAll}
+                    className="text-xs text-primary hover:underline">
+                    Tout effacer
+                  </button>
+                </>
               )}
-              <button onClick={loadNotifications} className="text-gray-400 hover:text-primary text-xs">↻</button>
+              <button onClick={loadNotifications} className="text-gray-400 hover:text-primary text-xs" title="Actualiser">↻</button>
             </div>
           </div>
 
           {/* Liste */}
           <div className="max-h-96 overflow-y-auto">
-            {notifications.length === 0 ? (
+            {visible.length === 0 ? (
               <div className="text-center py-8 text-gray-400">
                 <div className="text-3xl mb-2">✅</div>
                 <div className="text-sm">Aucune alerte</div>
               </div>
             ) : (
-              notifications.map(n => (
+              visible.map(n => (
                 <div key={n.id}
                   className={`flex gap-3 px-4 py-3 border-l-4 border-b border-gray-50 dark:border-gray-700/50 ${SEVERITY_COLORS[n.severity]}`}>
                   <span className="text-lg shrink-0 mt-0.5">{ICONS[n.type]}</span>
@@ -94,13 +111,16 @@ export default function NotificationCenter() {
                     <div className="text-xs font-semibold text-gray-700 dark:text-gray-300">{n.title}</div>
                     <div className="text-xs text-gray-500 mt-0.5 leading-relaxed">{n.message}</div>
                   </div>
+                  <button onClick={() => dismiss(n.id)}
+                    className="text-gray-300 hover:text-gray-500 text-lg leading-none shrink-0 mt-0.5"
+                    title="Ignorer">×</button>
                 </div>
               ))
             )}
           </div>
 
           {/* Footer */}
-          {notifications.length > 0 && (
+          {visible.length > 0 && (
             <div className="px-4 py-2 border-t border-gray-100 dark:border-gray-700 text-center">
               <span className="text-xs text-gray-400">
                 {errorCount > 0 && <span className="text-red-500 font-medium">{errorCount} critique(s) </span>}

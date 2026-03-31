@@ -119,11 +119,6 @@ export default function PaymentForm({ partyId, partyType, documentId, maxAmount,
         <textarea {...register('notes')} className="input resize-none" rows={2} placeholder="Remarques..." />
       </FormField>
 
-      {/* Notes */}
-      <FormField label="Notes" error={errors.notes?.message}>
-        <textarea {...register('notes')} className="input resize-none" rows={2} placeholder="Remarques..." />
-      </FormField>
-
       <div className="flex gap-3 pt-2 border-t border-gray-100 dark:border-gray-700">
         <button type="button" onClick={onCancel} className="btn-secondary flex-1 justify-center">Annuler</button>
         <button type="submit" disabled={isSubmitting} className="btn-primary flex-1 justify-center">

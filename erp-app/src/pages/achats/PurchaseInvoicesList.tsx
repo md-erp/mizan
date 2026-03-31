@@ -4,6 +4,8 @@ import Modal from '../../components/ui/Modal'
 import Drawer from '../../components/ui/Drawer'
 import PurchaseInvoiceForm from './PurchaseInvoiceForm'
 import DocumentDetail from '../../components/DocumentDetail'
+import SkeletonRows from '../../components/ui/SkeletonRows'
+import Pagination from '../../components/ui/Pagination'
 import type { Document, PaginatedResponse } from '../../types'
 
 const PAY_STATUS: Record<string, string> = {
@@ -16,18 +18,20 @@ export default function PurchaseInvoicesList() {
   const [data, setData] = useState<PaginatedResponse<Document> | null>(null)
   const [loading, setLoading] = useState(false)
   const [search, setSearch] = useState('')
+  const [page, setPage] = useState(1)
   const [modalOpen, setModalOpen] = useState(false)
   const [selectedId, setSelectedId] = useState<number | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const r = await api.getDocuments({ type: 'purchase_invoice', search }) as PaginatedResponse<Document>
+      const r = await api.getDocuments({ type: 'purchase_invoice', search, page, limit: 50 }) as PaginatedResponse<Document>
       setData(r)
     } finally { setLoading(false) }
-  }, [search])
+  }, [search, page])
 
   useEffect(() => { load() }, [load])
+  useEffect(() => { setPage(1) }, [search])
 
   const fmt = (n: number) => new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n)
 
@@ -52,7 +56,7 @@ export default function PurchaseInvoicesList() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-            {loading && <tr><td colSpan={7} className="text-center py-12 text-gray-400">Chargement...</td></tr>}
+            {loading && <SkeletonRows cols={7} />}
             {!loading && (data?.rows.length ?? 0) === 0 && (
               <tr><td colSpan={7} className="text-center py-16">
                 <div className="text-4xl mb-3">🧾</div>
@@ -89,6 +93,8 @@ export default function PurchaseInvoicesList() {
           <DocumentDetail docId={selectedId} onClose={() => setSelectedId(null)} onUpdated={load} />
         )}
       </Drawer>
+
+      <Pagination page={page} total={data?.total ?? 0} limit={50} onChange={setPage} />
     </div>
   )
 }

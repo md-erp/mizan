@@ -4,7 +4,7 @@ import Modal from '../../components/ui/Modal'
 import TransformationForm from './TransformationForm'
 
 export default function TransformationList() {
-  const [rows, setRows] = useState<any[]>([])
+  const [rows, setRows]       = useState<any[]>([])
   const [loading, setLoading] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
 
@@ -22,7 +22,8 @@ export default function TransformationList() {
     <div className="h-full flex flex-col gap-3">
       <div className="flex items-center gap-3">
         <button className="btn-primary" onClick={() => setModalOpen(true)}>+ Nouvelle Transformation</button>
-        <button onClick={load} className="btn-secondary btn-sm">↻</button>
+        <button onClick={load} className="btn-secondary btn-sm">↻ Actualiser</button>
+        <span className="text-sm text-gray-500 ml-auto">{rows.length} transformation(s)</span>
       </div>
 
       <div className="card flex-1 overflow-auto">
@@ -31,29 +32,38 @@ export default function TransformationList() {
             <tr>
               <th className="px-4 py-3 text-left font-medium text-gray-600">Date</th>
               <th className="px-4 py-3 text-left font-medium text-gray-600">Matière première</th>
-              <th className="px-4 py-3 text-right font-medium text-gray-600">Quantité entrée</th>
+              <th className="px-4 py-3 text-right font-medium text-gray-600">Qté entrée</th>
               <th className="px-4 py-3 text-right font-medium text-gray-600">Coût/unité</th>
               <th className="px-4 py-3 text-right font-medium text-gray-600">Coût total</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-            {loading && <tr><td colSpan={5} className="text-center py-12 text-gray-400">Chargement...</td></tr>}
+            {loading && [...Array(4)].map((_, i) => (
+              <tr key={i} className="animate-pulse">
+                {[...Array(5)].map((_, j) => (
+                  <td key={j} className="px-4 py-3">
+                    <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-3/4"></div>
+                  </td>
+                ))}
+              </tr>
+            ))}
             {!loading && rows.length === 0 && (
               <tr><td colSpan={5} className="text-center py-16">
                 <div className="text-4xl mb-3">🔄</div>
-                <div className="text-gray-500">Aucune transformation</div>
+                <div className="text-gray-500 font-medium">Aucune transformation</div>
+                <button onClick={() => setModalOpen(true)} className="btn-primary mt-3">+ Créer la première</button>
               </td></tr>
             )}
-            {rows.map(r => (
+            {!loading && rows.map(r => (
               <tr key={r.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/30">
-                <td className="px-4 py-3 text-gray-500">{new Date(r.date).toLocaleDateString('fr-FR')}</td>
+                <td className="px-4 py-3 text-gray-500 text-xs">{new Date(r.date).toLocaleDateString('fr-FR')}</td>
                 <td className="px-4 py-3">
                   <div className="font-medium">{r.material_name}</div>
                   <div className="text-xs text-gray-400 font-mono">{r.material_code}</div>
                 </td>
                 <td className="px-4 py-3 text-right font-semibold">{r.input_quantity}</td>
                 <td className="px-4 py-3 text-right text-gray-600">{fmt(r.cost_per_unit)} MAD</td>
-                <td className="px-4 py-3 text-right font-semibold">{fmt(r.total_cost)} MAD</td>
+                <td className="px-4 py-3 text-right font-semibold text-primary">{fmt(r.total_cost)} MAD</td>
               </tr>
             ))}
           </tbody>

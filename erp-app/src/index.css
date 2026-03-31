@@ -9,12 +9,6 @@
     @apply font-sans text-sm text-gray-800 bg-gray-50;
     @apply dark:bg-gray-900 dark:text-gray-100;
     -webkit-font-smoothing: antialiased;
-    user-select: none; /* منع التحديد العشوائي في الأزرار والـ UI */
-  }
-
-  /* السماح بالتحديد والكتابة في كل العناصر التفاعلية */
-  input, textarea, select, table, td, th, p, span, .selectable,
-  [contenteditable], [role="textbox"] {
     user-select: text;
     -webkit-user-select: text;
   }

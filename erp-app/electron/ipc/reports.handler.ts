@@ -25,6 +25,8 @@ export function registerReportHandlers(): void {
         return getStockMovementsReport(db, filters)
       case 'payments':
         return getPaymentsReport(db, filters)
+      case 'payables':
+        return getPayablesReport(db, filters)
       default:
         throw new Error(`Type de rapport inconnu: ${type}`)
     }
@@ -202,4 +204,22 @@ function getPaymentsReport(db: any, filters: any) {
     ${where}
     ORDER BY p.date DESC
   `).all(...params)
+}
+
+function getPayablesReport(db: any, _filters: any) {
+  // تقرير الذمم الدائنة — ديون الموردين
+  return db.prepare(`
+    SELECT s.name as supplier_name, s.phone, s.ice,
+      COALESCE(SUM(d.total_ttc), 0) as total_invoiced,
+      COALESCE(SUM(pa.amount), 0)   as total_paid,
+      COALESCE(SUM(d.total_ttc), 0) - COALESCE(SUM(pa.amount), 0) as balance
+    FROM suppliers s
+    LEFT JOIN documents d ON d.party_id = s.id AND d.party_type = 'supplier'
+      AND d.type IN ('purchase_invoice','import_invoice')
+      AND d.is_deleted = 0 AND d.status != 'cancelled'
+    LEFT JOIN payment_allocations pa ON pa.document_id = d.id
+    GROUP BY s.id
+    HAVING balance > 0
+    ORDER BY balance DESC
+  `).all()
 }

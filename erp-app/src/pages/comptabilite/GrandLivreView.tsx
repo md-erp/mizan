@@ -37,8 +37,54 @@ export default function GrandLivreView() {
         <input value={startDate} onChange={e => setStartDate(e.target.value)} className="input w-36" type="date" placeholder="Du" />
         <input value={endDate} onChange={e => setEndDate(e.target.value)} className="input w-36" type="date" placeholder="Au" />
         <button onClick={load} disabled={!selectedAccount} className="btn-primary">Afficher</button>
+        {lines.length > 0 && (
+          <button onClick={() => {
+            const account = accounts.find(a => a.id === selectedAccount)
+            const printWin = window.open('', '_blank')
+            if (!printWin) return
+            const rows_html = lines.map(l => `<tr>
+              <td>${new Date(l.date).toLocaleDateString('fr-FR')}</td>
+              <td style="font-family:monospace;color:#1E3A5F">${l.reference ?? ''}</td>
+              <td>${l.description}</td>
+              <td style="text-align:right;color:#15803d">${l.debit > 0 ? fmt(l.debit) : ''}</td>
+              <td style="text-align:right;color:#dc2626">${l.credit > 0 ? fmt(l.credit) : ''}</td>
+              <td style="text-align:right;font-weight:bold;color:${l.balance >= 0 ? '#15803d' : '#dc2626'}">${fmt(Math.abs(l.balance))} ${l.balance >= 0 ? 'D' : 'C'}</td>
+            </tr>`).join('')
+            printWin.document.write(`<!DOCTYPE html><html><head><title>Grand Livre</title>
+              <style>body{font-family:Arial,sans-serif;font-size:12px;padding:20px}
+              h2{color:#1E3A5F}table{width:100%;border-collapse:collapse}
+              th{background:#1E3A5F;color:white;padding:8px;text-align:left}
+              td{padding:6px 8px;border-bottom:1px solid #eee}
+              tfoot td{font-weight:bold;background:#f0f4f8;border-top:2px solid #1E3A5F}
+              </style></head><body>
+              <h2>Grand Livre — ${account?.code} ${account?.name}</h2>
+              <p style="color:#666;font-size:11px">Période: ${startDate || '—'} → ${endDate || '—'}</p>
+              <table><thead><tr><th>Date</th><th>Référence</th><th>Description</th><th style="text-align:right">Débit</th><th style="text-align:right">Crédit</th><th style="text-align:right">Solde</th></tr></thead>
+              <tbody>${rows_html}</tbody>
+              <tfoot><tr><td colspan="3" style="text-align:right">Totaux</td>
+              <td style="text-align:right;color:#15803d">${fmt(totalDebit)}</td>
+              <td style="text-align:right;color:#dc2626">${fmt(totalCredit)}</td>
+              <td style="text-align:right">${fmt(Math.abs(totalDebit - totalCredit))} ${totalDebit >= totalCredit ? 'D' : 'C'}</td>
+              </tr></tfoot></table></body></html>`)
+            printWin.document.close()
+            printWin.print()
+          }} className="btn-secondary btn-sm ml-auto">📄 PDF</button>
+        )}
       </div>
 
+      {loading && (
+        <div className="card flex-1 overflow-auto animate-pulse p-4 space-y-2">
+          {[...Array(6)].map((_, i) => (
+            <div key={i} className="flex gap-4">
+              <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-20"></div>
+              <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-24"></div>
+              <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded flex-1"></div>
+              <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-20"></div>
+              <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-20"></div>
+            </div>
+          ))}
+        </div>
+      )}
       {lines.length > 0 && (
         <div className="card flex-1 overflow-auto">
           <table className="w-full text-sm">

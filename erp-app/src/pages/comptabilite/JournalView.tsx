@@ -1,28 +1,48 @@
 import { useEffect, useState, useCallback } from 'react'
 import { api } from '../../lib/api'
+import Pagination from '../../components/ui/Pagination'
 import type { JournalEntry } from '../../types'
+
+const LIMIT = 50
 
 export default function JournalView() {
   const [entries, setEntries] = useState<JournalEntry[]>([])
+  const [total, setTotal]     = useState(0)
+  const [page, setPage]       = useState(1)
   const [loading, setLoading] = useState(false)
   const [expanded, setExpanded] = useState<number | null>(null)
   const [startDate, setStartDate] = useState('')
-  const [endDate, setEndDate] = useState('')
+  const [endDate, setEndDate]     = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const result = await api.getJournalEntries({ start_date: startDate || undefined, end_date: endDate || undefined }) as JournalEntry[]
-      setEntries(result)
+      const result = await api.getJournalEntries({
+        start_date: startDate || undefined,
+        end_date:   endDate   || undefined,
+        page,
+        limit: LIMIT,
+      }) as any
+      if (Array.isArray(result)) {
+        setEntries(result)
+        setTotal(result.length)
+      } else {
+        setEntries(result.rows ?? result)
+        setTotal(result.total ?? result.length)
+      }
     } finally { setLoading(false) }
-  }, [startDate, endDate])
+  }, [startDate, endDate, page])
 
   useEffect(() => { load() }, [load])
+
+  // reset page عند تغيير الفلاتر
+  useEffect(() => { setPage(1) }, [startDate, endDate])
 
   const fmt = (n: number) => new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n)
 
   return (
     <div className="h-full flex flex-col gap-3">
+      {/* Toolbar */}
       <div className="flex items-center gap-3 flex-wrap">
         <div className="flex items-center gap-2">
           <label className="text-sm text-gray-500">Du</label>
@@ -31,11 +51,20 @@ export default function JournalView() {
           <input value={endDate} onChange={e => setEndDate(e.target.value)} className="input w-36" type="date" />
         </div>
         <button onClick={load} className="btn-secondary btn-sm">↻ Actualiser</button>
-        <span className="text-sm text-gray-500 ml-auto">{entries.length} écriture(s)</span>
+        <span className="text-sm text-gray-500 ml-auto">{total} écriture(s)</span>
       </div>
 
+      {/* Entries */}
       <div className="flex-1 overflow-auto space-y-2">
-        {loading && <div className="text-center py-12 text-gray-400">Chargement...</div>}
+        {loading && (
+          [...Array(5)].map((_, i) => (
+            <div key={i} className="card px-4 py-3 animate-pulse flex items-center gap-4">
+              <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-20"></div>
+              <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-28"></div>
+              <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded flex-1"></div>
+            </div>
+          ))
+        )}
         {!loading && entries.length === 0 && (
           <div className="card p-12 text-center text-gray-400">
             <div className="text-4xl mb-3">📒</div>
@@ -43,7 +72,7 @@ export default function JournalView() {
             <div className="text-xs mt-1">Les écritures sont générées automatiquement lors de la confirmation des documents</div>
           </div>
         )}
-        {entries.map(e => (
+        {!loading && entries.map(e => (
           <div key={e.id} className="card overflow-hidden">
             <button
               onClick={() => setExpanded(expanded === e.id ? null : e.id)}
@@ -79,7 +108,6 @@ export default function JournalView() {
                       </td>
                     </tr>
                   ))}
-                  {/* Total */}
                   <tr className="bg-gray-50 dark:bg-gray-700/50 font-bold">
                     <td colSpan={2} className="px-4 py-2 text-right text-gray-500">Total</td>
                     <td className="px-4 py-2 text-right text-green-700">
@@ -95,6 +123,8 @@ export default function JournalView() {
           </div>
         ))}
       </div>
+
+      <Pagination page={page} total={total} limit={LIMIT} onChange={setPage} />
     </div>
   )
 }

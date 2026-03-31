@@ -38,7 +38,7 @@ export function createStockMovement(
     input.unit_cost ?? 0,
     product.cmup_price,
     0, // cmup_after يُحسب عند التطبيق
-    input.applied ? 1 : 0,
+    0, // دائماً 0 عند الإنشاء، يُطبق بعدها
     input.document_id ?? null,
     input.production_id ?? null,
     input.transformation_id ?? null,

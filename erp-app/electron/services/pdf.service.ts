@@ -16,11 +16,15 @@ export function getInvoiceDataForPdf(documentId: number): PdfInvoiceData {
       CASE d.party_type WHEN 'client' THEN c.address WHEN 'supplier' THEN s.address END as party_address,
       CASE d.party_type WHEN 'client' THEN c.ice WHEN 'supplier' THEN s.ice END as party_ice,
       CASE d.party_type WHEN 'client' THEN c.if_number WHEN 'supplier' THEN s.if_number END as party_if,
-      di.currency, di.exchange_rate, di.payment_method, di.due_date, di.payment_status
+      di.currency, di.exchange_rate, di.payment_method, di.due_date, di.payment_status,
+      dbl.delivery_address, dbl.delivery_date,
+      dp.validity_date as proforma_validity, dp.incoterm, dp.currency as proforma_currency, dp.exchange_rate as proforma_rate
     FROM documents d
     LEFT JOIN clients   c ON c.id = d.party_id AND d.party_type = 'client'
     LEFT JOIN suppliers s ON s.id = d.party_id AND d.party_type = 'supplier'
     LEFT JOIN doc_invoices di ON di.document_id = d.id
+    LEFT JOIN doc_bons_livraison dbl ON dbl.document_id = d.id
+    LEFT JOIN doc_proformas dp ON dp.document_id = d.id
     WHERE d.id = ?
   `).get(documentId) as any
 
@@ -61,6 +65,30 @@ export function generateInvoiceHtml(data: PdfInvoiceData): string {
     purchase_order: 'BON DE COMMANDE', purchase_invoice: 'FACTURE FOURNISSEUR',
   }
 
+  // Watermark pour brouillon/annulé
+  const watermarkText = doc.status === 'draft' ? 'BROUILLON' : doc.status === 'cancelled' ? 'ANNULÉ' : null
+  const watermarkHtml = watermarkText ? `
+    <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-45deg);
+      font-size:100px;font-weight:900;color:rgba(0,0,0,0.06);white-space:nowrap;
+      pointer-events:none;z-index:0;letter-spacing:10px;">
+      ${watermarkText}
+    </div>` : ''
+
+  // Infos spécifiques BL
+  const blInfoHtml = doc.type === 'bl' && (doc.delivery_address || doc.delivery_date) ? `
+    <div style="background:#f0f7ff;border-radius:8px;padding:12px;margin-bottom:20px;font-size:12px;">
+      <strong>Informations de livraison:</strong><br>
+      ${doc.delivery_address ? `Adresse: ${doc.delivery_address}<br>` : ''}
+      ${doc.delivery_date ? `Date de livraison: ${new Date(doc.delivery_date).toLocaleDateString('fr-FR')}` : ''}
+    </div>` : ''
+
+  // Infos spécifiques Proforma
+  const proformaInfoHtml = doc.type === 'proforma' && (doc.incoterm || doc.proforma_currency) ? `
+    <div style="background:#fff8e1;border-radius:8px;padding:12px;margin-bottom:20px;font-size:12px;">
+      ${doc.incoterm ? `<strong>Incoterm:</strong> ${doc.incoterm} &nbsp;&nbsp;` : ''}
+      ${doc.proforma_currency && doc.proforma_currency !== 'MAD' ? `<strong>Devise:</strong> ${doc.proforma_currency} (taux: ${doc.proforma_rate ?? 1})` : ''}
+    </div>` : ''
+
   const linesHtml = lines.map(l => `
     <tr>
       <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0">
@@ -82,7 +110,7 @@ export function generateInvoiceHtml(data: PdfInvoiceData): string {
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
   body { font-family: 'Segoe UI', Arial, sans-serif; font-size:13px; color:#333; background:#fff; }
-  .page { padding:40px; max-width:800px; margin:0 auto; }
+  .page { padding:40px; max-width:800px; margin:0 auto; position:relative; }
   .header { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:40px; }
   .company-name { font-size:22px; font-weight:700; color:#1E3A5F; }
   .company-info { font-size:11px; color:#666; margin-top:4px; line-height:1.6; }
@@ -110,6 +138,7 @@ export function generateInvoiceHtml(data: PdfInvoiceData): string {
 </head>
 <body>
 <div class="page">
+  ${watermarkHtml}
   <!-- Header -->
   <div class="header">
     <div>
@@ -148,6 +177,9 @@ export function generateInvoiceHtml(data: PdfInvoiceData): string {
       </div>
     </div>
   </div>
+
+  ${blInfoHtml}
+  ${proformaInfoHtml}
 
   <!-- Lignes -->
   <table>

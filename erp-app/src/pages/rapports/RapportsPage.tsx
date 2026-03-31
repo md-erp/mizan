@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { api } from '../../lib/api'
+import { useAppStore } from '../../store/app.store'
 import { toast } from '../../components/ui/Toast'
 
 const REPORTS = [
@@ -13,11 +14,21 @@ const REPORTS = [
   { id: 'tva_detail',     icon: '🧾', label: 'TVA',             desc: 'Par taux et période' },
   { id: 'profit_loss',    icon: '📈', label: 'P&L',             desc: 'Produits vs Charges' },
   { id: 'payments',       icon: '💳', label: 'Paiements',       desc: 'Historique règlements' },
+  { id: 'payables',       icon: '🏭', label: 'Dettes Fourn.',    desc: 'Fournisseurs créditeurs' },
 ]
 
 interface KpiStats {
   invoices_total: number; invoices_count: number; unpaid_total: number
   clients_count: number; products_low_stock: number; cheques_due_soon: number
+}
+
+const STATUS_BADGE: Record<string, string> = {
+  draft: 'badge-gray', confirmed: 'badge-blue', partial: 'badge-orange',
+  paid: 'badge-green', cancelled: 'badge-red',
+}
+const STATUS_LABEL: Record<string, string> = {
+  draft: 'Brouillon', confirmed: 'Confirmée', partial: 'Partiel',
+  paid: 'Payée', cancelled: 'Annulée',
 }
 
 export default function RapportsPage() {
@@ -28,6 +39,8 @@ export default function RapportsPage() {
   const [endDate, setEndDate] = useState('')
   const [kpi, setKpi] = useState<KpiStats | null>(null)
   const [kpiLoading, setKpiLoading] = useState(true)
+  const [recentDocs, setRecentDocs] = useState<any[]>([])
+  const { config } = useAppStore()
   const [exportSelected, setExportSelected] = useState<Set<string>>(new Set())
   const [showExportPicker, setShowExportPicker] = useState(false)
   const [exporting, setExporting] = useState(false)
@@ -36,12 +49,13 @@ export default function RapportsPage() {
     async function loadKpi() {
       setKpiLoading(true)
       try {
-        const [allDocs, clients, products, notifications] = await Promise.all([
-          api.getDocuments({ type: 'invoice', limit: 1000 }) as Promise<any>,
+        const [recentResult, clients, products, notifications] = await Promise.all([
+          api.getDocuments({ type: 'invoice', limit: 5 }) as Promise<any>,
           api.getClients({ limit: 1 }) as Promise<any>,
           api.getProducts({ limit: 500 }) as Promise<any>,
           api.getNotifications() as Promise<any[]>,
         ])
+        const allDocs = await api.getDocuments({ type: 'invoice', limit: 1000 }) as any
         const invoices = allDocs.rows ?? []
         const unpaid = invoices.filter((d: any) => d.status === 'confirmed' || d.status === 'partial')
         const lowStock = (products.rows ?? []).filter((p: any) => p.stock_quantity <= p.min_stock && p.min_stock > 0)
@@ -53,6 +67,7 @@ export default function RapportsPage() {
           products_low_stock: lowStock.length,
           cheques_due_soon:   ((notifications ?? []).filter((n: any) => n.type === 'cheque')).length,
         })
+        setRecentDocs(recentResult.rows ?? [])
       } catch (_) { /* silently ignore */ }
       finally { setKpiLoading(false) }
     }
@@ -205,9 +220,20 @@ export default function RapportsPage() {
 
       {/* Contenu */}
       <div className="flex-1 overflow-auto">
-        {/* Vue d'ensemble */}
+        {/* Vue d'ensemble — Dashboard */}
         {selected === 'overview' && (
           <div className="p-6 space-y-6">
+            {/* Greeting */}
+            <div>
+              <h1 className="text-xl font-bold text-gray-800 dark:text-white">
+                {new Date().getHours() < 12 ? 'Bonjour' : new Date().getHours() < 18 ? 'Bon après-midi' : 'Bonsoir'}, {config?.company_name ?? 'Bienvenue'} 👋
+              </h1>
+              <p className="text-gray-500 text-sm mt-1">
+                {new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+              </p>
+            </div>
+
+            {/* KPI Cards */}
             {kpiLoading ? (
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                 {[...Array(4)].map((_, i) => (
@@ -236,8 +262,60 @@ export default function RapportsPage() {
                 ))}
               </div>
             )}
-            <div className="text-center py-4 text-gray-400 text-sm">
-              Sélectionnez un onglet pour afficher un rapport détaillé
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Dernières factures */}
+              <div className="card">
+                <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-gray-700">
+                  <h3 className="font-semibold text-gray-700 dark:text-gray-300">Dernières factures</h3>
+                  <span className="text-xs text-gray-400">5 dernières</span>
+                </div>
+                <div className="divide-y divide-gray-100 dark:divide-gray-700">
+                  {recentDocs.length === 0 && (
+                    <div className="text-center py-8 text-gray-400 text-sm">Aucune facture</div>
+                  )}
+                  {recentDocs.map((doc: any) => (
+                    <div key={doc.id} className="flex items-center justify-between px-5 py-3 hover:bg-gray-50 dark:hover:bg-gray-700/30">
+                      <div>
+                        <div className="font-mono text-xs font-bold text-primary">{doc.number}</div>
+                        <div className="text-sm text-gray-600">{doc.party_name ?? '—'}</div>
+                        <div className="text-xs text-gray-400">{new Date(doc.date).toLocaleDateString('fr-FR')}</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="font-semibold text-sm">{fmt(doc.total_ttc)} MAD</div>
+                        <span className={`text-xs ${STATUS_BADGE[doc.status] ?? 'badge-gray'}`}>
+                          {STATUS_LABEL[doc.status] ?? doc.status}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Actions rapides */}
+              <div className="card">
+                <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700">
+                  <h3 className="font-semibold text-gray-700 dark:text-gray-300">Actions rapides</h3>
+                </div>
+                <div className="p-4 grid grid-cols-2 gap-3">
+                  {[
+                    { icon: '📄', label: 'Nouvelle Facture' },
+                    { icon: '👤', label: 'Nouveau Client' },
+                    { icon: '📦', label: 'Nouveau Produit' },
+                    { icon: '🛒', label: 'Bon de Commande' },
+                    { icon: '📊', label: 'Balance Comptable' },
+                    { icon: '💾', label: 'Sauvegarder' },
+                  ].map(item => (
+                    <button key={item.label}
+                      className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-primary hover:bg-primary/5 transition-all text-left group">
+                      <span className="text-xl">{item.icon}</span>
+                      <span className="text-sm font-medium text-gray-600 dark:text-gray-300 group-hover:text-primary">
+                        {item.label}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
         )}

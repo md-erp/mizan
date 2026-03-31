@@ -5,24 +5,29 @@ import { z } from 'zod'
 import { api } from '../../lib/api'
 import { toast } from '../ui/Toast'
 import FormField from '../ui/FormField'
+import Modal from '../ui/Modal'
+import PartyForm from './PartyForm'
 import type { Client, Product } from '../../types'
 
 const lineSchema = z.object({
   product_id:  z.number().optional(),
   description: z.string().optional(),
   quantity:    z.coerce.number().min(0.01, 'Qté > 0'),
-  unit_price:  z.coerce.number().min(0),
-  discount:    z.coerce.number().min(0).max(100),
+  unit_price:  z.coerce.number().min(0, 'Prix ≥ 0'),
+  discount:    z.coerce.number().min(0).max(100, 'Remise 0-100%'),
   tva_rate:    z.coerce.number(),
+}).refine(d => d.product_id || (d.description && d.description.trim().length > 0), {
+  message: 'Produit ou description requis',
+  path: ['description'],
 })
 
 const schema = z.object({
   date:           z.string().min(1, 'Date requise'),
   due_date:       z.string().optional(),
-  party_id:       z.coerce.number().min(1, 'Client requis'),
+  party_id:       z.coerce.number().min(1, 'Client / Fournisseur requis'),
   payment_method: z.string().optional(),
   currency:       z.string().default('MAD'),
-  exchange_rate:  z.coerce.number().min(0).default(1),
+  exchange_rate:  z.coerce.number().min(0.0001, 'Taux invalide').default(1),
   notes:          z.string().optional(),
   lines:          z.array(lineSchema).min(1, 'Au moins une ligne requise'),
 })
@@ -115,8 +120,8 @@ export default function InvoiceForm({ docType = 'invoice', onSaved, onCancel }: 
   const [products, setProducts] = useState<Product[]>([])
   const [clientSearch, setClientSearch] = useState('')
   const [selectedClient, setSelectedClient] = useState<Client | null>(null)
-  // بحث المنتج لكل سطر
   const [productSearches, setProductSearches] = useState<string[]>([''])
+  const [newClientModal, setNewClientModal] = useState(false)
 
   const { register, control, handleSubmit, watch, setValue,
     formState: { errors, isSubmitting } } = useForm<FormData>({
@@ -135,9 +140,13 @@ export default function InvoiceForm({ docType = 'invoice', onSaved, onCancel }: 
   const currency = watch('currency')
 
   useEffect(() => {
-    api.getClients({ limit: 500 }).then((r: any) => setClients(r.rows ?? []))
+    loadClients()
     api.getProducts({ limit: 500 }).then((r: any) => setProducts(r.rows ?? []))
   }, [])
+
+  function loadClients() {
+    api.getClients({ limit: 500 }).then((r: any) => setClients(r.rows ?? []))
+  }
 
   function calcLine(line: Partial<FormData['lines'][0]>) {
     const qty   = Number(line.quantity)   || 0
@@ -223,19 +232,30 @@ export default function InvoiceForm({ docType = 'invoice', onSaved, onCancel }: 
         {/* Client combobox */}
         <div className="col-span-2">
           <FormField label="Client" required error={errors.party_id?.message}>
-            <Combobox
-              items={clientItems}
-              value={selectedClient ? selectedClient.name : clientSearch}
-              onChange={v => { setClientSearch(v); setSelectedClient(null); setValue('party_id', 0) }}
-              onSelect={(id, label) => {
-                const c = clients.find(c => c.id === id)!
-                setSelectedClient(c)
-                setClientSearch(label)
-                setValue('party_id', id)
-              }}
-              placeholder="Rechercher un client..."
-              error={!!errors.party_id}
-            />
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <Combobox
+                  items={clientItems}
+                  value={selectedClient ? selectedClient.name : clientSearch}
+                  onChange={v => { setClientSearch(v); setSelectedClient(null); setValue('party_id', 0) }}
+                  onSelect={(id, label) => {
+                    const c = clients.find(c => c.id === id)!
+                    setSelectedClient(c)
+                    setClientSearch(label)
+                    setValue('party_id', id)
+                  }}
+                  placeholder="Rechercher un client..."
+                  error={!!errors.party_id}
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => setNewClientModal(true)}
+                className="btn-secondary btn-sm shrink-0 whitespace-nowrap"
+                title="Créer un nouveau client">
+                + Nouveau
+              </button>
+            </div>
             {selectedClient && (
               <div className="mt-1.5 flex items-center gap-3 text-xs text-gray-500 bg-blue-50 dark:bg-blue-900/20 rounded-lg px-3 py-2">
                 {selectedClient.address && <span>📍 {selectedClient.address}</span>}
@@ -396,6 +416,29 @@ export default function InvoiceForm({ docType = 'invoice', onSaved, onCancel }: 
           {isSubmitting ? '...' : '✅ Confirmer'}
         </button>
       </div>
+
+      {/* Modal nouveau client inline */}
+      <Modal open={newClientModal} onClose={() => setNewClientModal(false)} title="Nouveau Client">
+        <PartyForm
+          type="client"
+          onSaved={async () => {
+            setNewClientModal(false)
+            // تحديث قائمة العملاء واختيار الأخير تلقائياً
+            const result = await api.getClients({ limit: 500 }) as any
+            const rows: Client[] = result.rows ?? []
+            setClients(rows)
+            // نختار العميل الأحدث (آخر واحد في القائمة)
+            const newest = [...rows].sort((a, b) => b.id - a.id)[0]
+            if (newest) {
+              setSelectedClient(newest)
+              setClientSearch(newest.name)
+              setValue('party_id', newest.id)
+            }
+            toast('Client créé et sélectionné')
+          }}
+          onCancel={() => setNewClientModal(false)}
+        />
+      </Modal>
     </form>
   )
 }

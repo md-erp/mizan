@@ -1,18 +1,27 @@
 import { handle } from './index'
 import { getDb } from '../database/connection'
 import { createPaymentEntry } from '../services/accounting.service'
+import { logAudit } from '../services/audit.service'
 
 export function registerPaymentHandlers(): void {
-  handle('payments:getAll', (filters?: { party_id?: number; party_type?: string; status?: string }) => {
+  handle('payments:getAll', (filters?: { party_id?: number; party_type?: string; status?: string; document_id?: number }) => {
     const db = getDb()
-    let query = 'SELECT * FROM payments WHERE 1=1'
+    let query = `
+      SELECT p.*,
+        CASE p.party_type WHEN 'client' THEN c.name WHEN 'supplier' THEN s.name END as party_name
+      FROM payments p
+      LEFT JOIN clients   c ON c.id = p.party_id AND p.party_type = 'client'
+      LEFT JOIN suppliers s ON s.id = p.party_id AND p.party_type = 'supplier'
+      WHERE 1=1
+    `
     const params: any[] = []
 
-    if (filters?.party_id)   { query += ' AND party_id = ?';   params.push(filters.party_id) }
-    if (filters?.party_type) { query += ' AND party_type = ?'; params.push(filters.party_type) }
-    if (filters?.status)     { query += ' AND status = ?';     params.push(filters.status) }
+    if (filters?.party_id)   { query += ' AND p.party_id = ?';   params.push(filters.party_id) }
+    if (filters?.party_type) { query += ' AND p.party_type = ?'; params.push(filters.party_type) }
+    if (filters?.status)     { query += ' AND p.status = ?';     params.push(filters.status) }
+    if (filters?.document_id){ query += ' AND p.document_id = ?'; params.push(filters.document_id) }
 
-    query += ' ORDER BY date DESC'
+    query += ' ORDER BY p.date DESC'
     return db.prepare(query).all(...params)
   })
 
@@ -54,6 +63,14 @@ export function registerPaymentHandlers(): void {
         reference: `PAY-${paymentId}`,
       }, data.created_by ?? 1)
 
+      logAudit(db, {
+        user_id: data.created_by ?? 1,
+        action: 'PAYMENT',
+        table_name: 'payments',
+        record_id: paymentId,
+        new_values: { amount: data.amount, method: data.method, party_type: data.party_type },
+      })
+
       return { id: paymentId }
     })
 
@@ -64,6 +81,14 @@ export function registerPaymentHandlers(): void {
     const db = getDb()
     db.prepare(`UPDATE payments SET status=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`).run(data.status, data.id)
     return { success: true }
+  })
+
+  handle('payments:getPaidAmount', (documentId: number) => {
+    const db = getDb()
+    const row = db.prepare(
+      'SELECT COALESCE(SUM(amount), 0) as total FROM payment_allocations WHERE document_id = ?'
+    ).get(documentId) as any
+    return { total: row?.total ?? 0 }
   })
 }
 

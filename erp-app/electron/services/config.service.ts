@@ -23,15 +23,21 @@ export function getDeviceConfig(): DeviceConfig | null {
   return { ...row, setup_done: row.setup_done === 1 }
 }
 
+function sanitize(v: any): any {
+  if (v === undefined) return null
+  if (v === true) return 1
+  if (v === false) return 0
+  return v
+}
+
 export function saveDeviceConfig(data: Partial<DeviceConfig>): void {
   const db = getDb()
   const existing = db.prepare('SELECT id FROM device_config WHERE id = 1').get()
 
   if (existing) {
-    const fields = Object.keys(data)
-      .map(k => `${k} = ?`)
-      .join(', ')
-    db.prepare(`UPDATE device_config SET ${fields} WHERE id = 1`).run(...Object.values(data))
+    const fields = Object.keys(data).map(k => `${k} = ?`).join(', ')
+    const values = Object.values(data).map(sanitize)
+    db.prepare(`UPDATE device_config SET ${fields} WHERE id = 1`).run(...values)
   } else {
     db.prepare(`
       INSERT INTO device_config (id, company_name, company_ice, company_if, company_rc,

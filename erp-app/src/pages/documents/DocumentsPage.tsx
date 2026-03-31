@@ -20,6 +20,12 @@ export default function DocumentsPage() {
   const [avoirModal, setAvoirModal] = useState(false)
   const [quoteModal, setQuoteModal] = useState(false)
   const [blModal, setBlModal] = useState(false)
+  const [refreshKey, setRefreshKey] = useState(0)
+
+  function saved(closeFn: () => void) {
+    closeFn()
+    setRefreshKey(k => k + 1)
+  }
 
   return (
     <div className="h-full flex flex-col">
@@ -44,10 +50,10 @@ export default function DocumentsPage() {
               <button className="btn-primary" onClick={() => setAvoirModal(true)}>+ Nouvel Avoir</button>
             </div>
             <div className="h-[calc(100%-52px)]">
-              <InvoicesList docType="avoir" hideNewButton />
+              <InvoicesList key={refreshKey} docType="avoir" hideNewButton />
             </div>
             <Modal open={avoirModal} onClose={() => setAvoirModal(false)} title="Nouvel Avoir" size="lg">
-              <AvoirForm onSaved={() => setAvoirModal(false)} onCancel={() => setAvoirModal(false)} />
+              <AvoirForm onSaved={() => saved(() => setAvoirModal(false))} onCancel={() => setAvoirModal(false)} />
             </Modal>
           </>
         ) : tab === 'quote' ? (
@@ -56,10 +62,10 @@ export default function DocumentsPage() {
               <button className="btn-primary" onClick={() => setQuoteModal(true)}>+ Nouveau Devis</button>
             </div>
             <div className="h-[calc(100%-52px)]">
-              <InvoicesList docType="quote" hideNewButton />
+              <InvoicesList key={refreshKey} docType="quote" hideNewButton />
             </div>
             <Modal open={quoteModal} onClose={() => setQuoteModal(false)} title="Nouveau Devis" size="xl">
-              <QuoteForm docType="quote" onSaved={() => setQuoteModal(false)} onCancel={() => setQuoteModal(false)} />
+              <QuoteForm docType="quote" onSaved={() => saved(() => setQuoteModal(false))} onCancel={() => setQuoteModal(false)} />
             </Modal>
           </>
         ) : tab === 'proforma' ? (
@@ -68,10 +74,10 @@ export default function DocumentsPage() {
               <button className="btn-primary" onClick={() => setQuoteModal(true)}>+ Nouvelle Proforma</button>
             </div>
             <div className="h-[calc(100%-52px)]">
-              <InvoicesList docType="proforma" hideNewButton />
+              <InvoicesList key={refreshKey} docType="proforma" hideNewButton />
             </div>
             <Modal open={quoteModal} onClose={() => setQuoteModal(false)} title="Nouvelle Facture Proforma" size="xl">
-              <QuoteForm docType="proforma" onSaved={() => setQuoteModal(false)} onCancel={() => setQuoteModal(false)} />
+              <QuoteForm docType="proforma" onSaved={() => saved(() => setQuoteModal(false))} onCancel={() => setQuoteModal(false)} />
             </Modal>
           </>
         ) : tab === 'bl' ? (
@@ -80,14 +86,14 @@ export default function DocumentsPage() {
               <button className="btn-primary" onClick={() => setBlModal(true)}>+ Nouveau Bon de Livraison</button>
             </div>
             <div className="h-[calc(100%-52px)]">
-              <InvoicesList docType="bl" hideNewButton />
+              <InvoicesList key={refreshKey} docType="bl" hideNewButton />
             </div>
             <Modal open={blModal} onClose={() => setBlModal(false)} title="Nouveau Bon de Livraison" size="xl">
-              <BLForm onSaved={() => setBlModal(false)} onCancel={() => setBlModal(false)} />
+              <BLForm onSaved={() => saved(() => setBlModal(false))} onCancel={() => setBlModal(false)} />
             </Modal>
           </>
         ) : (
-          <InvoicesList docType={tab} />
+          <InvoicesList key={refreshKey} docType={tab} />
         )}
       </div>
     </div>

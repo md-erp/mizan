@@ -4,6 +4,7 @@ import Modal from '../../components/ui/Modal'
 import Drawer from '../../components/ui/Drawer'
 import ImportInvoiceForm from './ImportInvoiceForm'
 import DocumentDetail from '../../components/DocumentDetail'
+import SkeletonRows from '../../components/ui/SkeletonRows'
 import type { Document, PaginatedResponse } from '../../types'
 
 export default function ImportInvoicesList() {
@@ -43,7 +44,7 @@ export default function ImportInvoicesList() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-            {loading && <tr><td colSpan={6} className="text-center py-12 text-gray-400">Chargement...</td></tr>}
+            {loading && <SkeletonRows cols={6} />}
             {!loading && (data?.rows.length ?? 0) === 0 && (
               <tr><td colSpan={6} className="text-center py-16">
                 <div className="text-4xl mb-3">🌍</div>

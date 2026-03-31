@@ -40,7 +40,44 @@ export default function BalanceView() {
             toast('✅ Fichier Excel enregistré')
           } catch (e: any) { toast(e.message, 'error') }
         }}>📥 Excel</button>
-        <button className="btn-secondary btn-sm">📄 PDF</button>
+        <button className="btn-secondary btn-sm" onClick={async () => {
+          try {
+            // نصدر HTML ثم نفتح نافذة طباعة
+            const printWin = window.open('', '_blank')
+            if (!printWin) return
+            const title = 'Balance Comptable'
+            const rows_html = rows.map(r => {
+              const solde = r.total_debit - r.total_credit
+              return `<tr>
+                <td style="font-family:monospace;font-weight:bold;color:#1E3A5F">${r.code}</td>
+                <td>${r.name}</td>
+                <td style="text-align:right">${fmt(r.total_debit)}</td>
+                <td style="text-align:right">${fmt(r.total_credit)}</td>
+                <td style="text-align:right;color:#15803d">${solde > 0 ? fmt(solde) : ''}</td>
+                <td style="text-align:right;color:#dc2626">${solde < 0 ? fmt(Math.abs(solde)) : ''}</td>
+              </tr>`
+            }).join('')
+            printWin.document.write(`<!DOCTYPE html><html><head><title>${title}</title>
+              <style>body{font-family:Arial,sans-serif;font-size:12px;padding:20px}
+              h2{color:#1E3A5F}table{width:100%;border-collapse:collapse}
+              th{background:#1E3A5F;color:white;padding:8px;text-align:left}
+              td{padding:6px 8px;border-bottom:1px solid #eee}
+              tfoot td{font-weight:bold;background:#f0f4f8;border-top:2px solid #1E3A5F}
+              </style></head><body>
+              <h2>${title}</h2>
+              <p style="color:#666;font-size:11px">Période: ${startDate || '—'} → ${endDate || '—'} | Généré le ${new Date().toLocaleDateString('fr-FR')}</p>
+              <table><thead><tr><th>Code</th><th>Intitulé</th><th style="text-align:right">Total Débit</th><th style="text-align:right">Total Crédit</th><th style="text-align:right">Solde Débiteur</th><th style="text-align:right">Solde Créditeur</th></tr></thead>
+              <tbody>${rows_html}</tbody>
+              <tfoot><tr><td colspan="2" style="text-align:right">TOTAUX</td>
+              <td style="text-align:right">${fmt(totalDebit)}</td>
+              <td style="text-align:right">${fmt(totalCredit)}</td>
+              <td style="text-align:right;color:#15803d">${totalDebit > totalCredit ? fmt(totalDebit - totalCredit) : ''}</td>
+              <td style="text-align:right;color:#dc2626">${totalCredit > totalDebit ? fmt(totalCredit - totalDebit) : ''}</td>
+              </tr></tfoot></table></body></html>`)
+            printWin.document.close()
+            printWin.print()
+          } catch (e: any) { toast(e.message, 'error') }
+        }}>📄 PDF</button>
       </div>
 
       <div className="card flex-1 overflow-auto">
@@ -56,7 +93,18 @@ export default function BalanceView() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-            {loading && <tr><td colSpan={6} className="text-center py-12 text-gray-400">Chargement...</td></tr>}
+            {loading && (
+              [...Array(8)].map((_, i) => (
+                <tr key={i} className="animate-pulse">
+                  <td className="px-4 py-2"><div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-16"></div></td>
+                  <td className="px-4 py-2"><div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-40"></div></td>
+                  <td className="px-4 py-2"><div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-20 ml-auto"></div></td>
+                  <td className="px-4 py-2"><div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-20 ml-auto"></div></td>
+                  <td className="px-4 py-2"><div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-20 ml-auto"></div></td>
+                  <td className="px-4 py-2"><div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-20 ml-auto"></div></td>
+                </tr>
+              ))
+            )}
             {rows.map(r => {
               const solde = r.total_debit - r.total_credit
               return (

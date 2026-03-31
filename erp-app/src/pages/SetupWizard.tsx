@@ -52,14 +52,14 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
     try {
       await api.saveConfig({
         company_name:    companyName.trim(),
-        company_ice:     companyIce.trim(),
-        company_if:      companyIf.trim(),
-        company_rc:      companyRc.trim(),
-        company_address: companyAddress.trim(),
-        company_phone:   companyPhone.trim(),
+        company_ice:     companyIce.trim() || '',
+        company_if:      companyIf.trim() || '',
+        company_rc:      companyRc.trim() || '',
+        company_address: companyAddress.trim() || '',
+        company_phone:   companyPhone.trim() || '',
         mode,
-        server_ip:       serverIp.trim(),
-        server_port:     Number(serverPort) || 3000,
+        server_ip:       mode === 'client' ? serverIp.trim() : '',
+        server_port:     mode === 'client' ? (Number(serverPort) || 3000) : 3000,
         setup_done:      true,
       })
       await api.createUser({
@@ -124,25 +124,32 @@ export default function SetupWizard({ onComplete }: { onComplete: () => void }) 
           {step === 1 && (
             <>
               <h2 className="text-lg font-semibold mb-4">Mode de fonctionnement</h2>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3">
                 {([
-                  { value: 'standalone', label: 'Poste unique',   desc: 'Un seul ordinateur' },
-                  { value: 'master',     label: 'Serveur réseau', desc: 'Ce poste est le serveur' },
+                  { value: 'standalone', label: '🖥️ Poste unique',    desc: 'Un seul ordinateur, base de données locale' },
+                  { value: 'master',     label: '🌐 Serveur réseau',   desc: 'Ce poste héberge les données pour le réseau' },
+                  { value: 'client',     label: '💻 Client réseau',    desc: 'Ce poste se connecte à un serveur existant' },
                 ] as const).map(opt => (
                   <label key={opt.value} onClick={() => setMode(opt.value)}
-                    className={`card p-4 cursor-pointer border-2 transition-all
-                      ${mode === opt.value ? 'border-primary' : 'border-transparent'}`}>
-                    <div className="font-medium text-sm">{opt.label}</div>
-                    <div className="text-xs text-gray-500 mt-1">{opt.desc}</div>
+                    className={`card p-4 cursor-pointer border-2 transition-all flex items-start gap-3
+                      ${mode === opt.value ? 'border-primary bg-primary/5' : 'border-transparent hover:border-gray-200'}`}>
+                    <div className={`w-4 h-4 rounded-full border-2 mt-0.5 shrink-0 flex items-center justify-center
+                      ${mode === opt.value ? 'border-primary' : 'border-gray-300'}`}>
+                      {mode === opt.value && <div className="w-2 h-2 rounded-full bg-primary"></div>}
+                    </div>
+                    <div>
+                      <div className="font-medium text-sm">{opt.label}</div>
+                      <div className="text-xs text-gray-500 mt-0.5">{opt.desc}</div>
+                    </div>
                   </label>
                 ))}
               </div>
-              {mode === 'client' && (
-                <div className="grid grid-cols-3 gap-3">
+              {(mode === 'client') && (
+                <div className="grid grid-cols-3 gap-3 mt-2">
                   <input value={serverIp} onChange={e => setServerIp(e.target.value)}
-                    className="input col-span-2" placeholder="IP du serveur (ex: 192.168.1.10)" />
+                    className="input col-span-2" placeholder="IP du serveur (ex: 192.168.1.10)" required />
                   <input value={serverPort} onChange={e => setServerPort(e.target.value)}
-                    className="input" placeholder="Port" />
+                    className="input" placeholder="Port (3000)" />
                 </div>
               )}
             </>

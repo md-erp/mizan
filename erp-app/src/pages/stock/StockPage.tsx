@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import ProductsList from './ProductsList'
 import MovementsList from './MovementsList'
+import TransformationList from '../production/TransformationList'
 
 const TABS = [
   { id: 'all',       label: 'Tous les Produits' },
@@ -28,13 +29,7 @@ export default function StockPage() {
       <div className="flex-1 overflow-hidden p-4">
         {tab === 'all'       && <ProductsList />}
         {tab === 'movements' && <MovementsList />}
-        {tab === 'transform' && (
-          <div className="card p-8 text-center text-gray-400">
-            <div className="text-4xl mb-3">⚙️</div>
-            <div className="font-medium text-gray-600">Transformation Aluminium</div>
-            <div className="text-sm mt-1">Disponible dans le module Production</div>
-          </div>
-        )}
+        {tab === 'transform' && <TransformationList />}
       </div>
     </div>
   )

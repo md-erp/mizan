@@ -6,6 +6,8 @@ import Drawer from '../../components/ui/Drawer'
 import PartyForm from '../../components/forms/PartyForm'
 import PartyDetail from './PartyDetail'
 import ImportButton from '../../components/ImportButton'
+import SkeletonRows from '../../components/ui/SkeletonRows'
+import ConfirmDialog from '../../components/ui/ConfirmDialog'
 import type { Client, Supplier } from '../../types'
 
 interface Props { type: 'client' | 'supplier' }
@@ -17,6 +19,7 @@ export default function PartiesList({ type }: Props) {
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<Client | Supplier | null>(null)
   const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [deleteId, setDeleteId] = useState<number | null>(null)
 
   const label = type === 'client' ? 'Client' : 'Fournisseur'
   const fmt = (n: number) => new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n)
@@ -35,7 +38,6 @@ export default function PartiesList({ type }: Props) {
   useEffect(() => { load() }, [load])
 
   async function handleDelete(id: number) {
-    if (!confirm(`Supprimer ce ${label.toLowerCase()} ?`)) return
     try {
       const fn = type === 'client' ? api.deleteClient : api.deleteSupplier
       await fn(id)
@@ -43,6 +45,8 @@ export default function PartiesList({ type }: Props) {
       load()
     } catch (e: any) {
       toast(e.message, 'error')
+    } finally {
+      setDeleteId(null)
     }
   }
 
@@ -78,9 +82,7 @@ export default function PartiesList({ type }: Props) {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-            {loading && (
-              <tr><td colSpan={6} className="text-center py-12 text-gray-400">Chargement...</td></tr>
-            )}
+            {loading && <SkeletonRows cols={type === 'client' ? 6 : 5} />}
             {!loading && rows.length === 0 && (
               <tr><td colSpan={6} className="text-center py-16">
                 <div className="text-4xl mb-3">👥</div>
@@ -110,7 +112,7 @@ export default function PartiesList({ type }: Props) {
                   <div className="flex gap-1 justify-end" onClick={e => e.stopPropagation()}>
                     <button onClick={() => { setEditing(row); setModalOpen(true) }}
                       className="btn-secondary btn-sm text-xs">✏️</button>
-                    <button onClick={() => handleDelete(row.id)}
+                    <button onClick={() => setDeleteId(row.id)}
                       className="text-xs text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg px-2 py-1 transition-all">
                       🗑️
                     </button>
@@ -149,6 +151,16 @@ export default function PartiesList({ type }: Props) {
           />
         )}
       </Drawer>
+
+      <ConfirmDialog
+        open={deleteId !== null}
+        title={`Supprimer ce ${label.toLowerCase()}`}
+        message="Cette action est irréversible. Le contact sera archivé."
+        confirmLabel="Supprimer"
+        danger
+        onConfirm={() => deleteId && handleDelete(deleteId)}
+        onCancel={() => setDeleteId(null)}
+      />
     </div>
   )
 }

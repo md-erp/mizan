@@ -1,6 +1,7 @@
 import crypto from 'crypto'
 import { handle } from './index'
 import { getDb } from '../database/connection'
+import { logAudit } from '../services/audit.service'
 
 function hashPassword(password: string): string {
   return crypto.createHash('sha256').update(password).digest('hex')
@@ -20,6 +21,7 @@ export function registerAuthHandlers(): void {
     if (user.password_hash !== hashPassword(password)) throw new Error('Mot de passe incorrect')
 
     db.prepare('UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?').run(user.id)
+    logAudit(db, { user_id: user.id, action: 'LOGIN', table_name: 'users', record_id: user.id })
 
     const { password_hash, ...safeUser } = user
     return safeUser
@@ -42,6 +44,7 @@ export function registerAuthHandlers(): void {
       INSERT INTO users (name, email, password_hash, role)
       VALUES (?, ?, ?, ?)
     `).run(name.trim(), email.trim().toLowerCase(), hashPassword(password), role ?? 'sales')
+    logAudit(db, { user_id: 1, action: 'CREATE', table_name: 'users', record_id: result.lastInsertRowid as number, new_values: { name, email, role } })
     return { id: result.lastInsertRowid }
   })
 
@@ -60,6 +63,7 @@ export function registerAuthHandlers(): void {
   handle('users:delete', (id) => {
     const db = getDb()
     db.prepare('UPDATE users SET is_active = 0 WHERE id = ?').run(id)
+    logAudit(db, { user_id: 1, action: 'DELETE', table_name: 'users', record_id: id })
     return { success: true }
   })
 

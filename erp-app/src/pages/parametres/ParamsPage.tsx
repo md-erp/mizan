@@ -6,6 +6,7 @@ import UsersSettings from './UsersSettings'
 import BackupSettings from './BackupSettings'
 import LicenseSettings from './LicenseSettings'
 import TvaSettings from './TvaSettings'
+import AuditSettings from './AuditSettings'
 
 const SECTIONS = [
   { id: 'company',  label: 'Entreprise',    icon: '🏢' },
@@ -14,6 +15,7 @@ const SECTIONS = [
   { id: 'users',    label: 'Utilisateurs',   icon: '👥' },
   { id: 'backup',   label: 'Sauvegarde',     icon: '💾' },
   { id: 'licence',  label: 'Licence',        icon: '🔑' },
+  { id: 'audit',    label: 'Audit',          icon: '📋' },
 ] as const
 
 type SectionId = typeof SECTIONS[number]['id']
@@ -28,7 +30,7 @@ export default function ParamsPage() {
     <div className="h-full flex">
       {/* Sidebar */}
       <div className="w-52 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 p-3 shrink-0">
-        {SECTIONS.map(s => (
+        {SECTIONS.filter(s => s.id !== 'audit' || isAdmin).map(s => (
           <button key={s.id} onClick={() => setSection(s.id)}
             className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium mb-1 transition-all
               ${section === s.id
@@ -48,6 +50,7 @@ export default function ParamsPage() {
         {section === 'users'    && <UsersSettings isAdmin={isAdmin} />}
         {section === 'backup'   && <BackupSettings />}
         {section === 'licence'  && <LicenseSettings />}
+        {section === 'audit'    && isAdmin && <AuditSettings />}
       </div>
     </div>
   )

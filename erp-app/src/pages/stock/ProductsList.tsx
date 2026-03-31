@@ -8,6 +8,8 @@ import ProductDetail from './ProductDetail'
 import ImportButton from '../../components/ImportButton'
 import type { Product } from '../../types'
 
+import SkeletonRows from '../../components/ui/SkeletonRows'
+
 const TYPE_BADGE: Record<string, { label: string; cls: string }> = {
   raw:           { label: 'Matière 1ère', cls: 'badge-blue' },
   finished:      { label: 'Produit fini', cls: 'badge-green' },
@@ -41,6 +43,12 @@ export default function ProductsList() {
   }, [typeFilter, search])
 
   useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    const handler = () => load()
+    window.addEventListener('app:refresh', handler)
+    return () => window.removeEventListener('app:refresh', handler)
+  }, [load])
 
   const fmt = (n: number) => new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n)
 
@@ -84,7 +92,7 @@ export default function ProductsList() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-            {loading && <tr><td colSpan={9} className="text-center py-12 text-gray-400">Chargement...</td></tr>}
+            {loading && <SkeletonRows cols={9} />}
             {!loading && rows.length === 0 && (
               <tr><td colSpan={9} className="text-center py-16">
                 <div className="text-4xl mb-3">📦</div>
@@ -139,7 +147,7 @@ export default function ProductsList() {
       </Modal>
 
       <Drawer open={selectedId !== null} onClose={() => setSelectedId(null)} title="Fiche Produit" width="w-[700px]">
-        {selectedId !== null && <ProductDetail id={selectedId} onClose={() => setSelectedId(null)} />}
+        {selectedId !== null && <ProductDetail id={selectedId} onClose={() => setSelectedId(null)} onStockChanged={load} />}
       </Drawer>
     </div>
   )

@@ -39,23 +39,35 @@ export function createAccountingEntry(
 }
 
 // ==========================================
-// ACCOUNT CODES (من CGNC الرسمي)
+// ACCOUNT CODES (من CGNC الرسمي — Plan Comptable Marocain)
+// المراجع: Plan Comptable Marocain + CGNC
 // ==========================================
 const ACC = {
-  CLIENTS:          '3421',
-  FOURNISSEURS:     '4411',
-  TVA_FACTUREE:     '4455',
-  TVA_RECUPERABLE:  '3455',
-  BANQUE:           '5141',
-  CAISSE:           '5161',
-  VENTES_MARCH:     '7111',
-  VENTES_PRODUITS:  '7121',
-  VARIATION_STOCKS: '7131',
-  ACHATS_MARCH:     '6111',
-  ACHATS_MATIERES:  '6121',
-  STOCK_MATIERES:   '3121',
-  STOCK_PRODUITS:   '3151',
-  DETTES_DIVERS:    '4481',
+  // Classe 3 — Actif circulant
+  CLIENTS:          '3421',  // Clients (342 Clients et comptes rattachés)
+  TVA_RECUPERABLE:  '3455',  // État — TVA récupérable sur charges (34552)
+  CREDIT_TVA:       '3456',  // État — Crédit de TVA (suivant déclaration)
+  STOCK_MATIERES:   '3121',  // Matières premières (stock)
+  STOCK_PRODUITS:   '3151',  // Produits finis (stock)
+
+  // Classe 4 — Passif circulant
+  FOURNISSEURS:     '4411',  // Fournisseurs (441 Fournisseurs et comptes rattachés)
+  TVA_FACTUREE:     '4455',  // État — TVA facturée
+  TVA_DUE:          '4456',  // État — TVA due (suivant déclarations)
+  DETTES_DIVERS:    '4481',  // Dettes sur acquisitions (douanes, transitaire, etc.)
+
+  // Classe 5 — Trésorerie
+  BANQUE:           '5141',  // Banques (solde débiteur)
+  CAISSE:           '5161',  // Caisses
+
+  // Classe 6 — Charges
+  ACHATS_MARCH:     '6111',  // Achats de marchandises (négoce)
+  ACHATS_MATIERES:  '6121',  // Achats de matières premières (industrie/production)
+
+  // Classe 7 — Produits
+  VENTES_MARCH:     '7111',  // Ventes de marchandises au Maroc
+  VENTES_PRODUITS:  '7121',  // Ventes de biens produits (produits finis)
+  VARIATION_STOCKS: '7131',  // Variation des stocks de produits en cours
 }
 
 function getAccountId(db: Database.Database, code: string): number {
@@ -176,6 +188,61 @@ const ENTRY_HANDLERS: Record<
     ]
 
     return insertEntry(db, doc, `Importation ${doc.number}`, entryLines, userId)
+  },
+
+  // ⑥ Ordre de production confirmé
+  // Débit: 3151 Produits finis = coût total
+  // Crédit: 3121 Matières premières = Σ(matière × CMUP)
+  // Crédit: 7131 Variation stocks (main d'œuvre) = labor_cost
+  production: (db, doc, _lines, userId) => {
+    const order = db.prepare('SELECT * FROM production_orders WHERE id = ?').get(doc.id) as any
+    if (!order) return insertEntry(db, doc, `Production ${doc.number}`, [], userId)
+
+    const bom_lines = order.bom_snapshot
+      ? JSON.parse(order.bom_snapshot).lines ?? []
+      : db.prepare('SELECT * FROM bom_lines WHERE bom_id = ?').all(order.bom_id) as any[]
+
+    const bom = order.bom_id
+      ? db.prepare('SELECT labor_cost FROM bom_templates WHERE id = ?').get(order.bom_id) as any
+      : null
+
+    let materials_cost = 0
+    for (const line of bom_lines) {
+      const product = db.prepare('SELECT cmup_price FROM products WHERE id = ?').get(line.material_id) as any
+      materials_cost += (line.quantity * order.quantity) * (product?.cmup_price ?? 0)
+    }
+    const labor_cost = (bom?.labor_cost ?? 0) * order.quantity
+    const total_cost = materials_cost + labor_cost
+
+    const entryLines = [
+      { accountCode: ACC.STOCK_PRODUITS, debit: total_cost, credit: 0, notes: `Production ${order.quantity} unités` },
+      { accountCode: ACC.STOCK_MATIERES, debit: 0, credit: materials_cost, notes: 'Consommation matières' },
+      ...(labor_cost > 0 ? [{ accountCode: ACC.VARIATION_STOCKS, debit: 0, credit: labor_cost, notes: 'Main d\'œuvre' }] : []),
+    ]
+
+    return insertEntry(db, doc, `Ordre de production ${doc.number}`, entryLines, userId)
+  },
+
+  // ⑦ Transformation (aluminium)
+  // Débit: 3151 Produits finis = coût total transformation
+  // Crédit: 3121 Matières premières = CMUP × quantité consommée
+  // Crédit: 7131 Variation stocks = coût de transformation
+  transformation: (db, doc, _lines, userId) => {
+    const trans = db.prepare('SELECT * FROM transformations WHERE id = ?').get(doc.id) as any
+    if (!trans) return insertEntry(db, doc, `Transformation ${doc.number}`, [], userId)
+
+    const material = db.prepare('SELECT cmup_price FROM products WHERE id = ?').get(trans.raw_material_id) as any
+    const material_cost = (material?.cmup_price ?? 0) * trans.input_quantity
+    const transform_cost = (trans.cost_per_unit ?? 0) * trans.input_quantity
+    const total_cost = material_cost + transform_cost
+
+    const entryLines = [
+      { accountCode: ACC.STOCK_PRODUITS, debit: total_cost, credit: 0, notes: 'Produits transformés' },
+      { accountCode: ACC.STOCK_MATIERES, debit: 0, credit: material_cost, notes: 'Matière consommée' },
+      ...(transform_cost > 0 ? [{ accountCode: ACC.VARIATION_STOCKS, debit: 0, credit: transform_cost, notes: 'Coût de transformation' }] : []),
+    ]
+
+    return insertEntry(db, doc, `Transformation ${doc.number}`, entryLines, userId)
   },
 
   // ⑧ Avoir retour client

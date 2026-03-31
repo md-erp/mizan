@@ -4,6 +4,7 @@ import { useAppStore } from '../store/app.store'
 import NotificationCenter from '../components/NotificationCenter'
 import { canAccess } from '../lib/permissions'
 import { api } from '../lib/api'
+import { emitRefresh } from '../lib/refresh'
 import ErrorBoundary from '../components/ErrorBoundary'
 
 // Pages
@@ -70,6 +71,9 @@ export default function MainLayout() {
       <div className="flex items-center gap-1 ml-auto">
         <button onClick={toggleTheme} className="p-2 rounded-lg hover:bg-white/10 text-primary-100">
           {theme === 'light' ? '🌙' : '☀️'}
+        </button>
+        <button onClick={() => emitRefresh()} title="Actualiser" className="p-2 rounded-lg hover:bg-white/10 text-primary-100 text-base">
+          🔄
         </button>
         <NotificationCenter />
         <div className="flex items-center gap-2 pl-2 border-l border-white/20">

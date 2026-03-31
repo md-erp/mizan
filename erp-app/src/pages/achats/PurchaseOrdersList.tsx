@@ -6,6 +6,9 @@ import PurchaseOrderForm from './PurchaseOrderForm'
 import DocumentDetail from '../../components/DocumentDetail'
 import type { Document, PaginatedResponse } from '../../types'
 
+import SkeletonRows from '../../components/ui/SkeletonRows'
+import Pagination from '../../components/ui/Pagination'
+
 const STATUS: Record<string, { label: string; cls: string }> = {
   draft:     { label: 'Brouillon',  cls: 'badge-gray' },
   confirmed: { label: 'Confirmé',   cls: 'badge-blue' },
@@ -17,18 +20,20 @@ export default function PurchaseOrdersList() {
   const [data, setData] = useState<PaginatedResponse<Document> | null>(null)
   const [loading, setLoading] = useState(false)
   const [search, setSearch] = useState('')
+  const [page, setPage] = useState(1)
   const [modalOpen, setModalOpen] = useState(false)
   const [selectedId, setSelectedId] = useState<number | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const r = await api.getDocuments({ type: 'purchase_order', search }) as PaginatedResponse<Document>
+      const r = await api.getDocuments({ type: 'purchase_order', search, page, limit: 50 }) as PaginatedResponse<Document>
       setData(r)
     } finally { setLoading(false) }
-  }, [search])
+  }, [search, page])
 
   useEffect(() => { load() }, [load])
+  useEffect(() => { setPage(1) }, [search])
 
   const fmt = (n: number) => new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n)
 
@@ -53,7 +58,7 @@ export default function PurchaseOrdersList() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-            {loading && <tr><td colSpan={6} className="text-center py-12 text-gray-400">Chargement...</td></tr>}
+            {loading && <SkeletonRows cols={6} />}
             {!loading && (data?.rows.length ?? 0) === 0 && (
               <tr><td colSpan={6} className="text-center py-16">
                 <div className="text-4xl mb-3">🛒</div>
@@ -89,6 +94,8 @@ export default function PurchaseOrdersList() {
           <DocumentDetail docId={selectedId} onClose={() => setSelectedId(null)} onUpdated={load} />
         )}
       </Drawer>
+
+      <Pagination page={page} total={data?.total ?? 0} limit={50} onChange={setPage} />
     </div>
   )
 }

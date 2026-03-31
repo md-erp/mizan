@@ -128,6 +128,23 @@ export function registerAccountingHandlers(): void {
     return { success: true }
   })
 
+  handle('accounting:getTvaRates', () => {
+    const db = getDb()
+    return db.prepare('SELECT * FROM tva_rates ORDER BY rate ASC').all()
+  })
+
+  handle('accounting:createAccount', (data: { code: string; name: string; type: string; class: number; parent_id?: number }) => {
+    const db = getDb()
+    if (!data.code?.trim() || !data.name?.trim()) throw new Error('Code et intitulé requis')
+    const existing = db.prepare('SELECT id FROM accounts WHERE code = ?').get(data.code.trim())
+    if (existing) throw new Error(`Le compte ${data.code} existe déjà`)
+    const result = db.prepare(`
+      INSERT INTO accounts (code, name, type, class, parent_id, is_active, is_system)
+      VALUES (?, ?, ?, ?, ?, 1, 0)
+    `).run(data.code.trim(), data.name.trim(), data.type, data.class, data.parent_id ?? null)
+    return { id: result.lastInsertRowid }
+  })
+
   handle('accounting:createEntry', (data) => {
     const db = getDb()
     const tx = db.transaction(() => {

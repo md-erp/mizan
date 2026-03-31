@@ -126,7 +126,7 @@ export default function ImportInvoiceForm({ onSaved, onCancel }: Props) {
             className={`input ${errors.party_id ? 'input-error' : ''}`}
             placeholder="Rechercher un fournisseur..."
           />
-          {showSupplierList && supplierSearch && filteredSuppliers.length > 0 && (
+          {showSupplierList && filteredSuppliers.length > 0 && (
             <div className="absolute top-full left-0 right-0 z-20 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl overflow-hidden">
               {filteredSuppliers.map(s => (
                 <button key={s.id} type="button"

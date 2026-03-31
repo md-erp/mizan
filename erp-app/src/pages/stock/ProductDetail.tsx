@@ -3,11 +3,11 @@ import { api } from '../../lib/api'
 import Modal from '../../components/ui/Modal'
 import type { Product, StockMovement } from '../../types'
 
-interface Props { id: number; onClose?: () => void }
+interface Props { id: number; onClose?: () => void; onStockChanged?: () => void }
 
 type Tab = 'movements' | 'info'
 
-export default function ProductDetail({ id }: Props) {
+export default function ProductDetail({ id, onStockChanged }: Props) {
   const [product, setProduct] = useState<Product | null>(null)
   const [movements, setMovements] = useState<StockMovement[]>([])
   const [tab, setTab] = useState<Tab>('movements')
@@ -36,6 +36,7 @@ export default function ProductDetail({ id }: Props) {
     try {
       await api.applyStockMovement(movId)
       load()
+      onStockChanged?.()
     } catch (e: any) { alert(e.message) }
   }
 
@@ -55,6 +56,7 @@ export default function ProductDetail({ id }: Props) {
       setManualModal(false)
       setManualForm({ type: 'in', quantity: 1, unit_cost: 0, notes: '' })
       load()
+      onStockChanged?.()
     } catch (e: any) { alert(e.message) }
     finally { setSaving(false) }
   }

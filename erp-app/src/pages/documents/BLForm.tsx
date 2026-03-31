@@ -101,7 +101,7 @@ export default function BLForm({ onSaved, onCancel }: Props) {
             className={`input ${errors.party_id ? 'input-error' : ''}`}
             placeholder="Rechercher un client..."
           />
-          {showClientList && clientSearch && filteredClients.length > 0 && (
+          {showClientList && filteredClients.length > 0 && (
             <div className="absolute top-full left-0 right-0 z-20 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl overflow-hidden">
               {filteredClients.map(c => (
                 <button key={c.id} type="button"

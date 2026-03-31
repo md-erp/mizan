@@ -17,6 +17,7 @@ import { registerExcelHandlers }         from './excel.handler'
 import { registerSettingsHandlers }      from './settings.handler'
 import { registerImportHandlers }        from './import.handler'
 import { registerAttachmentsHandlers }   from './attachments.handler'
+import { registerAuditHandlers }         from './audit.handler'
 
 export function registerAllHandlers(): void {
   registerConfigHandlers()
@@ -37,6 +38,7 @@ export function registerAllHandlers(): void {
   registerSettingsHandlers()
   registerImportHandlers()
   registerAttachmentsHandlers()
+  registerAuditHandlers()
 }
 
 // Helper: wrapper موحد لكل handler

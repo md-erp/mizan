@@ -1,9 +1,14 @@
 import { useEffect, useState, useCallback } from 'react'
 import { api } from '../../lib/api'
+import Pagination from '../../components/ui/Pagination'
 import type { StockMovement } from '../../types'
 
+const LIMIT = 50
+
 export default function MovementsList() {
-  const [rows, setRows] = useState<StockMovement[]>([])
+  const [rows, setRows]     = useState<StockMovement[]>([])
+  const [total, setTotal]   = useState(0)
+  const [page, setPage]     = useState(1)
   const [loading, setLoading] = useState(false)
   const [filter, setFilter] = useState<'all' | 'pending' | 'applied'>('all')
   const [search, setSearch] = useState('')
@@ -12,14 +17,24 @@ export default function MovementsList() {
     setLoading(true)
     try {
       const applied = filter === 'all' ? undefined : filter === 'applied'
-      const result = await api.getStockMovements({ applied }) as StockMovement[]
-      setRows(result)
+      const result = await api.getStockMovements({ applied, page, limit: LIMIT }) as any
+      // handler يرجع array أو paginated object
+      if (Array.isArray(result)) {
+        setRows(result)
+        setTotal(result.length)
+      } else {
+        setRows(result.rows ?? result)
+        setTotal(result.total ?? result.length)
+      }
     } finally {
       setLoading(false)
     }
-  }, [filter])
+  }, [filter, page])
 
   useEffect(() => { load() }, [load])
+
+  // reset page عند تغيير الفلتر
+  useEffect(() => { setPage(1) }, [filter])
 
   async function handleApply(id: number) {
     try {
@@ -32,7 +47,6 @@ export default function MovementsList() {
 
   const fmt = (n: number) => new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n)
 
-  // مرجع المستند المرتبط
   function getSource(m: StockMovement): string {
     if (m.document_id)       return `Document #${m.document_id}`
     if (m.production_id)     return `Production #${m.production_id}`
@@ -81,14 +95,22 @@ export default function MovementsList() {
               <th className="px-4 py-3 text-right font-medium text-gray-600">Quantité</th>
               <th className="px-4 py-3 text-right font-medium text-gray-600">Coût unit.</th>
               <th className="px-4 py-3 text-right font-medium text-gray-600">CMUP avant → après</th>
-              <th className="px-4 py-3 text-left font-medium text-gray-600">Source / Raison</th>
+              <th className="px-4 py-3 text-left font-medium text-gray-600">Source</th>
               <th className="px-4 py-3 text-center font-medium text-gray-600">Statut</th>
               <th className="px-4 py-3 w-28"></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
             {loading && (
-              <tr><td colSpan={9} className="text-center py-12 text-gray-400">Chargement...</td></tr>
+              [...Array(5)].map((_, i) => (
+                <tr key={i} className="animate-pulse">
+                  {[...Array(9)].map((_, j) => (
+                    <td key={j} className="px-4 py-3">
+                      <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-3/4"></div>
+                    </td>
+                  ))}
+                </tr>
+              ))
             )}
             {!loading && filtered.length === 0 && (
               <tr><td colSpan={9} className="text-center py-16">
@@ -97,7 +119,7 @@ export default function MovementsList() {
                 <div className="text-gray-400 text-xs mt-1">Les mouvements apparaissent lors de la confirmation des documents</div>
               </td></tr>
             )}
-            {filtered.map(m => (
+            {!loading && filtered.map(m => (
               <tr key={m.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/30">
                 <td className="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">
                   {new Date(m.date).toLocaleDateString('fr-FR')}
@@ -119,9 +141,7 @@ export default function MovementsList() {
                     {m.type === 'in' ? '+' : '-'}{fmt(m.quantity)}
                   </span>
                 </td>
-                <td className="px-4 py-3 text-right text-gray-600 text-xs">
-                  {fmt(m.unit_cost)} MAD
-                </td>
+                <td className="px-4 py-3 text-right text-gray-600 text-xs">{fmt(m.unit_cost)} MAD</td>
                 <td className="px-4 py-3 text-right text-xs text-gray-500">
                   {m.applied
                     ? <span>{fmt(m.cmup_before)} <span className="text-gray-300">→</span> <span className="font-medium text-gray-700 dark:text-gray-300">{fmt(m.cmup_after)}</span></span>
@@ -151,21 +171,16 @@ export default function MovementsList() {
         </table>
       </div>
 
-      {/* Summary */}
-      {filtered.length > 0 && (
+      {/* Footer */}
+      <div className="flex items-center justify-between">
         <div className="flex gap-4 text-xs text-gray-500">
-          <span>{filtered.length} mouvement(s)</span>
-          <span className="text-green-600">
-            ▲ {filtered.filter(m => m.type === 'in').length} entrée(s)
-          </span>
-          <span className="text-red-500">
-            ▼ {filtered.filter(m => m.type === 'out').length} sortie(s)
-          </span>
-          <span className="text-orange-500">
-            ⏳ {filtered.filter(m => !m.applied).length} en attente
-          </span>
+          <span>{total} mouvement(s)</span>
+          <span className="text-green-600">▲ entrées: {filtered.filter(m => m.type === 'in').length}</span>
+          <span className="text-red-500">▼ sorties: {filtered.filter(m => m.type === 'out').length}</span>
+          <span className="text-orange-500">⏳ en attente: {filtered.filter(m => !m.applied).length}</span>
         </div>
-      )}
+        <Pagination page={page} total={total} limit={LIMIT} onChange={setPage} />
+      </div>
     </div>
   )
 }

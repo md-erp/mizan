@@ -10,18 +10,13 @@ interface TvaRate {
 
 export default function TvaSettings() {
   const [rates, setRates] = useState<TvaRate[]>([])
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    api.getAccounts({ search: 'TVA' }).then(() => {
-      // نقرأ من mock — في الإنتاج نضيف endpoint خاص
-      setRates([
-        { id: 1, rate: 0,  label: 'Exonéré (0%)',  is_active: true },
-        { id: 2, rate: 7,  label: 'TVA 7%',         is_active: true },
-        { id: 3, rate: 10, label: 'TVA 10%',        is_active: true },
-        { id: 4, rate: 14, label: 'TVA 14%',        is_active: true },
-        { id: 5, rate: 20, label: 'TVA 20%',        is_active: true },
-      ])
-    })
+    ;(api as any).getTvaRates()
+      .then((r: TvaRate[]) => setRates(r ?? []))
+      .catch(() => {})
+      .finally(() => setLoading(false))
   }, [])
 
   return (
@@ -33,11 +28,18 @@ export default function TvaSettings() {
             <tr>
               <th className="px-4 py-3 text-left font-medium text-gray-600">Taux</th>
               <th className="px-4 py-3 text-left font-medium text-gray-600">Libellé</th>
-              <th className="px-4 py-3 text-center font-medium text-gray-600">Actif</th>
+              <th className="px-4 py-3 text-center font-medium text-gray-600">Statut</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-            {rates.map(r => (
+            {loading && [...Array(5)].map((_, i) => (
+              <tr key={i} className="animate-pulse">
+                <td className="px-4 py-3"><div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-12"></div></td>
+                <td className="px-4 py-3"><div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-24"></div></td>
+                <td className="px-4 py-3"><div className="h-5 bg-gray-200 dark:bg-gray-700 rounded-full w-16 mx-auto"></div></td>
+              </tr>
+            ))}
+            {!loading && rates.map(r => (
               <tr key={r.id}>
                 <td className="px-4 py-3 font-bold text-primary">{r.rate}%</td>
                 <td className="px-4 py-3">{r.label}</td>
@@ -52,7 +54,7 @@ export default function TvaSettings() {
         </table>
       </div>
       <p className="text-xs text-gray-400 mt-3">
-        Les taux TVA sont conformes au Code Général des Impôts marocain (CGI).
+        Taux conformes au Code Général des Impôts marocain (CGI) — Art. 98 à 100.
       </p>
     </div>
   )

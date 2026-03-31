@@ -6,6 +6,8 @@ import PaymentForm from './forms/PaymentForm'
 import AttachmentsPanel from './AttachmentsPanel'
 import type { Document } from '../types'
 
+import ConfirmDialog from './ui/ConfirmDialog'
+
 const STATUS_BADGE: Record<string, string> = {
   draft: 'badge-gray', confirmed: 'badge-blue', partial: 'badge-orange',
   paid: 'badge-green', cancelled: 'badge-red', delivered: 'badge-green',
@@ -26,6 +28,8 @@ export default function DocumentDetail({ docId, onUpdated }: Omit<Props, 'onClos
   const [loading, setLoading] = useState(true)
   const [paymentModal, setPaymentModal] = useState(false)
   const [htmlPreview, setHtmlPreview] = useState<string | null>(null)
+  const [totalPaid, setTotalPaid] = useState(0)
+  const [cancelConfirm, setCancelConfirm] = useState(false)
 
   const fmt = (n: number) => new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n)
 
@@ -34,6 +38,9 @@ export default function DocumentDetail({ docId, onUpdated }: Omit<Props, 'onClos
     try {
       const result = await api.getDocument(docId) as unknown as Document
       setDoc(result)
+      // نجلب المبلغ المدفوع الدقيق من payment_allocations
+      const paidData = await api.getPaymentPaidAmount(docId) as any
+      setTotalPaid(paidData?.total ?? 0)
     } finally {
       setLoading(false)
     }
@@ -53,7 +60,6 @@ export default function DocumentDetail({ docId, onUpdated }: Omit<Props, 'onClos
   }
 
   async function handleCancel() {
-    if (!confirm('Annuler ce document ?')) return
     try {
       await api.cancelDocument(docId)
       toast('Document annulé', 'warning')
@@ -61,6 +67,8 @@ export default function DocumentDetail({ docId, onUpdated }: Omit<Props, 'onClos
       onUpdated()
     } catch (e: any) {
       toast(e.message, 'error')
+    } finally {
+      setCancelConfirm(false)
     }
   }
 
@@ -94,13 +102,25 @@ export default function DocumentDetail({ docId, onUpdated }: Omit<Props, 'onClos
   }
 
   if (loading) return (
-    <div className="flex items-center justify-center h-64 text-gray-400">Chargement...</div>
+    <div className="p-6 space-y-5 animate-pulse">
+      <div className="flex justify-between">
+        <div className="space-y-2">
+          <div className="h-6 bg-gray-200 dark:bg-gray-700 rounded w-36"></div>
+          <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-24"></div>
+        </div>
+        <div className="h-6 bg-gray-200 dark:bg-gray-700 rounded-full w-20"></div>
+      </div>
+      <div className="h-16 bg-gray-200 dark:bg-gray-700 rounded-lg"></div>
+      <div className="space-y-2">
+        {[...Array(3)].map((_, i) => <div key={i} className="h-8 bg-gray-200 dark:bg-gray-700 rounded"></div>)}
+      </div>
+    </div>
   )
   if (!doc) return (
     <div className="flex items-center justify-center h-64 text-gray-400">Document introuvable</div>
   )
 
-  const remainingAmount = doc.total_ttc // simplifié — à améliorer avec les paiements réels
+  const remainingAmount = Math.max(0, (doc?.total_ttc ?? 0) - totalPaid)
 
   return (
     <div className="p-6 space-y-5">
@@ -174,6 +194,21 @@ export default function DocumentDetail({ docId, onUpdated }: Omit<Props, 'onClos
             <span>Total TTC</span>
             <span className="text-primary">{fmt(doc.total_ttc)} MAD</span>
           </div>
+          {totalPaid > 0 && (
+            <div className="flex justify-between text-green-600 text-sm">
+              <span>Payé</span><span>- {fmt(totalPaid)} MAD</span>
+            </div>
+          )}
+          {remainingAmount > 0.01 && (
+            <div className="flex justify-between text-orange-500 font-semibold text-sm border-t border-gray-100 dark:border-gray-700 pt-1">
+              <span>Reste à payer</span><span>{fmt(remainingAmount)} MAD</span>
+            </div>
+          )}
+          {remainingAmount <= 0.01 && totalPaid > 0 && (
+            <div className="flex justify-between text-green-600 font-semibold text-sm border-t border-gray-100 dark:border-gray-700 pt-1">
+              <span>✅ Soldé</span><span>0,00 MAD</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -240,6 +275,15 @@ export default function DocumentDetail({ docId, onUpdated }: Omit<Props, 'onClos
         {doc.type === 'invoice' && doc.status === 'confirmed' && (
           <button onClick={async () => {
             try {
+              await api.convertDocument({ sourceId: doc.id, targetType: 'avoir', extra: { avoir_type: 'retour', affects_stock: false } })
+              toast('Avoir créé')
+              load(); onUpdated()
+            } catch (e: any) { toast(e.message, 'error') }
+          }} className="btn-secondary">↩️ Avoir</button>
+        )}
+        {doc.type === 'invoice' && doc.status === 'confirmed' && (
+          <button onClick={async () => {
+            try {
               await api.convertDocument({ sourceId: doc.id, targetType: 'bl', extra: {} })
               toast('Bon de livraison créé')
               load(); onUpdated()
@@ -252,7 +296,7 @@ export default function DocumentDetail({ docId, onUpdated }: Omit<Props, 'onClos
           </button>
         )}
         {doc.status !== 'cancelled' && doc.status !== 'paid' && (
-          <button onClick={handleCancel} className="btn-secondary text-red-500">🚫 Annuler</button>
+          <button onClick={() => setCancelConfirm(true)} className="btn-secondary text-red-500">🚫 Annuler</button>
         )}
         <button onClick={handlePreview} className="btn-secondary ml-auto">🖨️ PDF</button>
       </div>
@@ -269,7 +313,17 @@ export default function DocumentDetail({ docId, onUpdated }: Omit<Props, 'onClos
         />
       </Modal>
 
-      {/* PDF Preview — HTML dans un iframe */}
+      <ConfirmDialog
+        open={cancelConfirm}
+        title="Annuler ce document"
+        message="Le document sera marqué comme annulé. Cette action ne peut pas être défaite."
+        confirmLabel="Annuler le document"
+        danger
+        onConfirm={handleCancel}
+        onCancel={() => setCancelConfirm(false)}
+      />
+
+      {/* PDF Preview */}
       {htmlPreview && (
         <div className="fixed inset-0 z-[70] flex flex-col bg-black/80">
           <div className="flex items-center justify-between px-4 py-3 bg-gray-900 shrink-0">

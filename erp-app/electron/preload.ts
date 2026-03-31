@@ -55,6 +55,7 @@ const api = {
   getPayments:        (filters?: unknown) => ipcRenderer.invoke('payments:getAll', filters),
   createPayment:      (data: unknown)     => ipcRenderer.invoke('payments:create', data),
   updatePayment:      (data: unknown)     => ipcRenderer.invoke('payments:update', data),
+  getPaymentPaidAmount: (docId: number)   => ipcRenderer.invoke('payments:getPaidAmount', docId),
 
   // --- Purchases (يستخدم نفس documents handler) ---
   getPurchaseOrders:  (filters?: unknown) => ipcRenderer.invoke('documents:getAll', { ...filters as any, type: 'purchase_order' }),
@@ -124,6 +125,14 @@ const api = {
   attachmentsList:   (d: unknown) => ipcRenderer.invoke('attachments:list', d),
   attachmentsOpen:   (p: string)  => ipcRenderer.invoke('attachments:open', p),
   attachmentsDelete: (p: string)  => ipcRenderer.invoke('attachments:delete', p),
+
+  // --- Audit ---
+  auditGetLog:  (f?: unknown) => ipcRenderer.invoke('audit:getLog', f),
+  auditGetUsers:()            => ipcRenderer.invoke('audit:getUsers'),
+
+  // --- Accounting extra ---
+  createAccount: (d: unknown) => ipcRenderer.invoke('accounting:createAccount', d),
+  getTvaRates:   ()           => ipcRenderer.invoke('accounting:getTvaRates'),
 }
 
 contextBridge.exposeInMainWorld('api', api)

@@ -1,6 +1,7 @@
 import { handle } from './index'
 import { getDb } from '../database/connection'
 import { createDocument, confirmDocument } from '../services/document.service'
+import { logAudit } from '../services/audit.service'
 
 export function registerDocumentHandlers(): void {
   handle('documents:getAll', (filters?: {
@@ -83,18 +84,27 @@ export function registerDocumentHandlers(): void {
     return { ...doc, lines, links, pendingMovements }
   })
 
-  handle('documents:create', (data) => createDocument(data))
+  handle('documents:create', (data) => {
+    const result = createDocument(data)
+    const db = getDb()
+    logAudit(db, { user_id: data.created_by ?? 1, action: 'CREATE', table_name: 'documents', record_id: result.id, new_values: { type: data.type, number: result.number } })
+    return result
+  })
 
   handle('documents:confirm', (data: number | { id: number; userId?: number }) => {
     const id     = typeof data === 'number' ? data : data.id
     const userId = typeof data === 'number' ? 1    : (data.userId ?? 1)
     confirmDocument(id, userId)
+    const db = getDb()
+    logAudit(db, { user_id: userId, action: 'CONFIRM', table_name: 'documents', record_id: id })
     return { success: true }
   })
 
   handle('documents:cancel', (id: number) => {
     const db = getDb()
+    const doc = db.prepare('SELECT status FROM documents WHERE id = ?').get(id) as any
     db.prepare(`UPDATE documents SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(id)
+    logAudit(db, { user_id: 1, action: 'CANCEL', table_name: 'documents', record_id: id, old_values: { status: doc?.status } })
     return { success: true }
   })
 

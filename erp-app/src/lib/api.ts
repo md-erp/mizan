@@ -69,6 +69,7 @@ export const api = {
   getPayments:     (f?: unknown) => call(() => window.api.getPayments(f),    () => mockApi.getPayments()),
   createPayment:   (d: unknown)  => call(() => window.api.createPayment(d),  () => mockApi.createPayment()),
   updatePayment:   (d: unknown)  => call(() => window.api.updatePayment(d),  () => mockApi.updatePayment()),
+  getPaymentPaidAmount: (id: number) => call(() => window.api.getPaymentPaidAmount(id), () => Promise.resolve({ success: true, data: { total: 0 } })),
 
   // Accounting
   getAccounts:       (f?: unknown) => call(() => window.api.getAccounts(f),       () => mockApi.getAccounts()),
@@ -135,4 +136,18 @@ export const api = {
   attachmentsList:   (d: unknown) => call(() => window.api.attachmentsList(d),   () => Promise.resolve({ success: true, data: [] })),
   attachmentsOpen:   (p: string)  => call(() => window.api.attachmentsOpen(p),   () => Promise.resolve({ success: true, data: null })),
   attachmentsDelete: (p: string)  => call(() => window.api.attachmentsDelete(p), () => Promise.resolve({ success: true, data: null })),
+
+  // Audit
+  getAuditLog:  (f?: unknown) => call(() => window.api.auditGetLog(f),   () => Promise.resolve({ success: true, data: { rows: [], total: 0, page: 1, limit: 100 } })),
+  getAuditUsers:()            => call(() => window.api.auditGetUsers(),  () => Promise.resolve({ success: true, data: [] })),
+
+  // Accounting extra
+  createAccount: (d: unknown) => call(() => window.api.createAccount(d), () => Promise.resolve({ success: true, data: { id: 1 } })),
+  getTvaRates:   ()           => call(() => window.api.getTvaRates(),     () => Promise.resolve({ success: true, data: [
+    { id: 1, rate: 0, label: 'Exonéré (0%)', is_active: true },
+    { id: 2, rate: 7, label: 'TVA 7%', is_active: true },
+    { id: 3, rate: 10, label: 'TVA 10%', is_active: true },
+    { id: 4, rate: 14, label: 'TVA 14%', is_active: true },
+    { id: 5, rate: 20, label: 'TVA 20%', is_active: true },
+  ]})),
 }
