@@ -5,22 +5,436 @@ import Modal from './ui/Modal'
 import PaymentForm from './forms/PaymentForm'
 import AttachmentsPanel from './AttachmentsPanel'
 import AvoirForm from '../pages/documents/AvoirForm'
+import InvoiceForm from './forms/InvoiceForm'
+import QuoteForm from '../pages/documents/QuoteForm'
+import ProformaForm from '../pages/documents/ProformaForm'
+import BLForm from '../pages/documents/BLForm'
+import PurchaseOrderForm from '../pages/achats/PurchaseOrderForm'
+import PurchaseInvoiceForm from '../pages/achats/PurchaseInvoiceForm'
+import ImportInvoiceForm from '../pages/achats/ImportInvoiceForm'
 import type { Document } from '../types'
 import ConfirmDialog from './ui/ConfirmDialog'
 
 const STATUS_BADGE: Record<string, string> = {
   draft: 'badge-gray', confirmed: 'badge-blue', partial: 'badge-orange',
   paid: 'badge-green', cancelled: 'badge-red', delivered: 'badge-green',
+  partial: 'badge-orange', received: 'badge-green',
 }
 const STATUS_LABEL: Record<string, string> = {
   draft: 'Brouillon', confirmed: 'Confirmée', partial: 'Partiel',
-  paid: 'Payée', cancelled: 'Annulée', delivered: 'Livrée',
+  paid: 'Payée', cancelled: 'Annulée', delivered: 'Appliqué',
+  partial: 'Partiel', received: 'Reçu',
+}
+
+// ── due date helper ──────────────────────────────────────────────────────────
+function DueDateBanner({ doc }: { doc: Document }) {
+  const inv = doc as any
+  if (!inv.due_date || ['paid', 'cancelled'].includes(doc.status)) return null
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  const due   = new Date(inv.due_date); due.setHours(0, 0, 0, 0)
+  const days  = Math.ceil((due.getTime() - today.getTime()) / 86_400_000)
+
+  if (days < 0)
+    return (
+      <div className="flex items-center gap-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg px-4 py-2.5 text-sm text-red-700 dark:text-red-400">
+        <span className="text-base">🔴</span>
+        <span className="font-semibold">Retard de {Math.abs(days)} jour(s)</span>
+        <span className="text-red-500 ml-1">— Échéance: {new Date(inv.due_date).toLocaleDateString('fr-FR')}</span>
+      </div>
+    )
+  if (days === 0)
+    return (
+      <div className="flex items-center gap-2 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg px-4 py-2.5 text-sm text-orange-700 dark:text-orange-400">
+        <span className="text-base">🟠</span>
+        <span className="font-semibold">Échéance aujourd'hui</span>
+      </div>
+    )
+  if (days <= 7)
+    return (
+      <div className="flex items-center gap-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg px-4 py-2.5 text-sm text-amber-700 dark:text-amber-400">
+        <span className="text-base">🟡</span>
+        <span className="font-semibold">{days} jour(s) restants</span>
+        <span className="text-amber-500 ml-1">— Échéance: {new Date(inv.due_date).toLocaleDateString('fr-FR')}</span>
+      </div>
+    )
+  return null
 }
 
 interface Props {
   docId: number
   onClose: () => void
   onUpdated: () => void
+}
+
+// ── Edit wrapper — charge les données existantes dans InvoiceForm ────────────
+function EditInvoiceWrapper({ doc, onSaved, onCancel }: {
+  doc: Document
+  onSaved: () => void
+  onCancel: () => void
+}) {
+  const [initialData, setInitialData] = useState<any>(null)
+
+  useEffect(() => {
+    api.getDocument(doc.id).then((fullDoc: any) => {
+      setInitialData({
+        docId:          fullDoc.id,
+        date:           fullDoc.date,
+        party_id:       fullDoc.party_id,
+        notes:          fullDoc.notes,
+        due_date:       fullDoc.due_date ?? '',
+        payment_method: fullDoc.payment_method ?? 'cash',
+        currency:       fullDoc.currency ?? 'MAD',
+        exchange_rate:  fullDoc.exchange_rate ?? 1,
+        lines: (fullDoc.lines ?? []).map((l: any) => ({
+          product_id:  l.product_id,
+          description: l.description ?? '',
+          quantity:    l.quantity,
+          unit_price:  l.unit_price,
+          discount:    l.discount ?? 0,
+          tva_rate:    l.tva_rate ?? 20,
+        })),
+      })
+    })
+  }, [doc.id])
+
+  if (!initialData) return (
+    <div className="p-8 text-center text-gray-400">
+      <div className="text-2xl mb-2 animate-pulse">⏳</div>
+      <div className="text-sm">Chargement des données...</div>
+    </div>
+  )
+
+  return (
+    <InvoiceForm
+      docType={doc.type}
+      editDocId={doc.id}
+      defaultValues={initialData}
+      onSaved={onSaved}
+      onCancel={onCancel}
+    />
+  )
+}
+
+// ── Edit wrapper pour Import Invoice ─────────────────────────────────────────
+function EditImportWrapper({ doc, onSaved, onCancel }: {
+  doc: Document
+  onSaved: () => void
+  onCancel: () => void
+}) {
+  const [initialData, setInitialData] = useState<any>(null)
+
+  useEffect(() => {
+    api.getDocument(doc.id).then((fullDoc: any) => {
+      const extra = fullDoc.extra ?? {}
+      setInitialData({
+        docId:           fullDoc.id,
+        date:            fullDoc.date,
+        party_id:        fullDoc.party_id,
+        notes:           fullDoc.notes,
+        currency:        fullDoc.currency        ?? extra.currency        ?? 'EUR',
+        exchange_rate:   Number(fullDoc.exchange_rate  ?? extra.exchange_rate)  || 10.8,
+        invoice_amount:  Number(fullDoc.invoice_amount ?? extra.invoice_amount) || 0,
+        customs:         Number(fullDoc.customs         ?? extra.customs)        || 0,
+        transitaire:     Number(fullDoc.transitaire     ?? extra.transitaire)    || 0,
+        tva_import:      Number(fullDoc.tva_import      ?? extra.tva_import)     || 0,
+        other_costs:     Number(fullDoc.other_costs     ?? extra.other_costs)    || 0,
+        allocation_mode: extra.allocation_mode ?? 'quantity',
+        lines: (fullDoc.lines ?? []).map((l: any) => ({
+          product_id:  l.product_id,
+          description: l.description ?? '',
+          quantity:    Number(l.quantity)   || 1,
+          unit_price:  Number(l.unit_price) || 0, // prix unitaire MAD (coût réparti)
+          discount:    0,
+          tva_rate:    0,
+        })),
+      })
+    })
+  }, [doc.id])
+
+  if (!initialData) return (
+    <div className="p-8 text-center text-gray-400">
+      <div className="text-2xl mb-2 animate-pulse">⏳</div>
+      <div className="text-sm">Chargement des données...</div>
+    </div>
+  )
+
+  return (
+    <ImportInvoiceForm
+      editDocId={doc.id}
+      defaultValues={initialData}
+      onSaved={onSaved}
+      onCancel={onCancel}
+    />
+  )
+}
+
+// ── Edit wrapper pour Purchase Order ─────────────────────────────────────────
+function EditPurchaseOrderWrapper({ doc, onSaved, onCancel }: {
+  doc: Document
+  onSaved: () => void
+  onCancel: () => void
+}) {
+  const [initialData, setInitialData] = useState<any>(null)
+
+  useEffect(() => {
+    api.getDocument(doc.id).then((fullDoc: any) => {
+      setInitialData({
+        docId:    fullDoc.id,
+        date:     fullDoc.date,
+        party_id: fullDoc.party_id,
+        notes:    fullDoc.notes,
+        expected_delivery_date: (fullDoc as any).expected_delivery_date ?? '',
+        lines: (fullDoc.lines ?? []).map((l: any) => ({
+          product_id:  l.product_id,
+          description: l.description ?? '',
+          quantity:    l.quantity,
+          unit_price:  l.unit_price,
+          discount:    l.discount ?? 0,
+          tva_rate:    l.tva_rate ?? 20,
+        })),
+      })
+    })
+  }, [doc.id])
+
+  if (!initialData) return (
+    <div className="p-8 text-center text-gray-400">
+      <div className="text-2xl mb-2 animate-pulse">⏳</div>
+      <div className="text-sm">Chargement des données...</div>
+    </div>
+  )
+
+  return (
+    <PurchaseOrderForm
+      editDocId={doc.id}
+      defaultValues={initialData}
+      onSaved={onSaved}
+      onCancel={onCancel}
+    />
+  )
+}
+
+// ── Edit wrapper pour Purchase Invoice ───────────────────────────────────────
+function EditPurchaseInvoiceWrapper({ doc, onSaved, onCancel }: {
+  doc: Document
+  onSaved: () => void
+  onCancel: () => void
+}) {
+  const [initialData, setInitialData] = useState<any>(null)
+
+  useEffect(() => {
+    api.getDocument(doc.id).then((fullDoc: any) => {
+      setInitialData({
+        docId:          fullDoc.id,
+        date:           fullDoc.date,
+        party_id:       fullDoc.party_id,
+        notes:          fullDoc.notes,
+        due_date:       fullDoc.due_date       ?? '',
+        payment_method: fullDoc.payment_method ?? 'bank',
+        lines: (fullDoc.lines ?? []).map((l: any) => ({
+          product_id:  l.product_id,
+          description: l.description ?? '',
+          quantity:    l.quantity,
+          unit_price:  l.unit_price,
+          discount:    l.discount ?? 0,
+          tva_rate:    l.tva_rate ?? 20,
+        })),
+      })
+    })
+  }, [doc.id])
+
+  if (!initialData) return (
+    <div className="p-8 text-center text-gray-400">
+      <div className="text-2xl mb-2 animate-pulse">⏳</div>
+      <div className="text-sm">Chargement des données...</div>
+    </div>
+  )
+
+  return (
+    <PurchaseInvoiceForm
+      editDocId={doc.id}
+      defaultValues={initialData}
+      onSaved={onSaved}
+      onCancel={onCancel}
+    />
+  )
+}
+
+// ── Partial Reception Modal ──────────────────────────────────────────────────
+// PO Receipt Summary
+function POReceiptSummary({ docId }: { docId: number }) {
+  const [status, setStatus] = useState<any>(null)
+  const fmt = (n: number) => new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n ?? 0)
+
+  useEffect(() => {
+    api.getPOReceiptStatus(docId)
+      .then((r: any) => setStatus(r))
+      .catch(() => setStatus({ summary: [], fullyReceived: false, brCount: 0 }))
+  }, [docId])
+
+  if (!status || status.summary.length === 0) return null
+  const { summary, fullyReceived, brCount } = status
+  const totalOrdered   = summary.reduce((s: number, l: any) => s + l.qty_ordered, 0)
+  const totalReceived  = summary.reduce((s: number, l: any) => s + l.qty_received, 0)
+  const totalRemaining = summary.reduce((s: number, l: any) => s + l.qty_remaining, 0)
+  const pct = totalOrdered > 0 ? Math.round((totalReceived / totalOrdered) * 100) : 0
+
+  return (
+    <div className={`border rounded-xl p-4 space-y-3 ${fullyReceived ? 'border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/10' : 'border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/10'}`}>
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">Suivi des receptions</span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-500">{brCount} BR cree(s)</span>
+          <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${fullyReceived ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+            {fullyReceived ? 'Complet' : `${pct}% recu`}
+          </span>
+        </div>
+      </div>
+      <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+        <div className={`h-2 rounded-full transition-all ${fullyReceived ? 'bg-green-500' : 'bg-amber-500'}`} style={{ width: `${pct}%` }} />
+      </div>
+      <div className="space-y-1.5">
+        {summary.map((l: any) => (
+          <div key={l.id} className="flex items-center gap-3 text-xs">
+            <span className="flex-1 truncate text-gray-600 dark:text-gray-300">{l.description ?? `Produit #${l.product_id}`}</span>
+            <span className="text-gray-400">cmd: <span className="font-medium text-gray-600 dark:text-gray-200">{fmt(l.qty_ordered)}</span></span>
+            <span className="text-green-600">recu: <span className="font-medium">{fmt(l.qty_received)}</span></span>
+            {l.qty_remaining > 0
+              ? <span className="text-amber-600">restant: <span className="font-medium">{fmt(l.qty_remaining)}</span></span>
+              : <span className="text-green-500">OK</span>}
+          </div>
+        ))}
+      </div>
+      {!fullyReceived && (
+        <div className="text-xs text-amber-600 dark:text-amber-400 pt-1 border-t border-amber-200 dark:border-amber-700">
+          {fmt(totalRemaining)} unite(s) encore en attente
+        </div>
+      )}
+    </div>
+  )
+}
+
+function PartialReceptionModal({ doc, onSaved, onCancel }: {
+  doc: Document
+  onSaved: () => void
+  onCancel: () => void
+}) {
+  const [status, setStatus] = useState<any>(null)
+  const [quantities, setQuantities] = useState<Record<number, number>>({})
+  const [loading, setLoading] = useState(true)
+  const [submitting, setSubmitting] = useState(false)
+
+  const fmt = (n: number) => new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n ?? 0)
+
+  useEffect(() => {
+    api.getPOReceiptStatus(doc.id)
+      .then((r: any) => {
+        setStatus(r)
+        const init: Record<number, number> = {}
+        ;(r.summary ?? []).forEach((l: any) => { init[l.id] = l.qty_remaining })
+        setQuantities(init)
+      })
+      .catch((e: any) => {
+        toast(e?.message ?? 'Erreur chargement', 'error')
+        setStatus({ summary: [], fullyReceived: false, brCount: 0 })
+      })
+      .finally(() => setLoading(false))
+  }, [doc.id])
+
+  async function handleSubmit() {
+    const lines = status.summary
+      .filter((l: any) => (quantities[l.id] ?? 0) > 0)
+      .map((l: any) => ({ id: l.id, quantity: quantities[l.id] }))
+
+    if (lines.length === 0) {
+      toast('Aucune quantité à réceptionner', 'error')
+      return
+    }
+    setSubmitting(true)
+    try {
+      const result = await api.convertDocument({
+        sourceId: doc.id,
+        targetType: 'bl_reception',
+        extra: { lines },
+      }) as any
+      await api.linkDocuments({ parentId: doc.id, childId: result.id, linkType: 'po_to_reception' })
+      await api.confirmDocument(result.id)
+      toast('Bon de réception créé — Stock en attente ⏳')
+      onSaved()
+    } catch (e: any) {
+      toast(e.message, 'error')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  if (loading) return (
+    <div className="p-8 text-center text-gray-400 animate-pulse">⏳ Chargement...</div>
+  )
+
+  const { summary, brCount } = status
+  const totalRemaining = summary.reduce((s: number, l: any) => s + l.qty_remaining, 0)
+
+  return (
+    <div className="space-y-4">
+      {/* Historique */}
+      {brCount > 0 && (
+        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg px-4 py-2.5 text-xs text-blue-700 dark:text-blue-400">
+          📦 {brCount} bon(s) de réception déjà créé(s) pour ce BC
+        </div>
+      )}
+
+      {totalRemaining <= 0 ? (
+        <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg px-4 py-3 text-sm text-green-700 dark:text-green-400 text-center">
+          ✅ Toutes les quantités ont été réceptionnées
+        </div>
+      ) : (
+        <>
+          {/* Tableau des lignes */}
+          <div className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
+            <div className="grid grid-cols-12 gap-2 px-3 py-2 bg-gray-50 dark:bg-gray-700/50 text-xs font-medium text-gray-500">
+              <div className="col-span-4">Produit</div>
+              <div className="col-span-2 text-right">Commandé</div>
+              <div className="col-span-2 text-right">Reçu</div>
+              <div className="col-span-2 text-right text-amber-600">Restant</div>
+              <div className="col-span-2 text-right text-primary">À recevoir</div>
+            </div>
+            {summary.map((l: any) => (
+              <div key={l.id} className="grid grid-cols-12 gap-2 px-3 py-2.5 border-t border-gray-100 dark:border-gray-700 items-center">
+                <div className="col-span-4 text-sm font-medium truncate">{l.description ?? `Produit #${l.product_id}`}</div>
+                <div className="col-span-2 text-right text-xs text-gray-500">{fmt(l.qty_ordered)}</div>
+                <div className="col-span-2 text-right text-xs text-green-600 font-medium">{fmt(l.qty_received)}</div>
+                <div className={`col-span-2 text-right text-xs font-semibold ${l.qty_remaining > 0 ? 'text-amber-600' : 'text-gray-400'}`}>
+                  {fmt(l.qty_remaining)}
+                </div>
+                <div className="col-span-2">
+                  {l.qty_remaining > 0 ? (
+                    <input
+                      type="number"
+                      min={0}
+                      max={l.qty_remaining}
+                      step="0.01"
+                      value={quantities[l.id] ?? l.qty_remaining}
+                      onChange={e => setQuantities(q => ({ ...q, [l.id]: Math.min(Number(e.target.value), l.qty_remaining) }))}
+                      className="input text-xs text-right w-full"
+                    />
+                  ) : (
+                    <span className="text-xs text-gray-400 text-right block">✅ Complet</span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex gap-3 pt-2 border-t border-gray-100 dark:border-gray-700">
+            <button type="button" onClick={onCancel} className="btn-secondary">Annuler</button>
+            <button type="button" disabled={submitting} onClick={handleSubmit} className="btn-primary flex-1 justify-center">
+              {submitting ? '...' : '📥 Créer le Bon de Réception'}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  )
 }
 
 export default function DocumentDetail({ docId, onUpdated }: Omit<Props, 'onClose'> & { onClose?: () => void }) {
@@ -33,6 +447,8 @@ export default function DocumentDetail({ docId, onUpdated }: Omit<Props, 'onClos
   const [linkedDocId, setLinkedDocId] = useState<number | null>(null)
   const [avoirModal, setAvoirModal] = useState(false)
   const [stockConfirm, setStockConfirm] = useState(false)
+  const [editModal, setEditModal] = useState(false)
+  const [receptionModal, setReceptionModal] = useState(false)
 
   const fmt = (n: number) => new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n)
 
@@ -157,13 +573,26 @@ export default function DocumentDetail({ docId, onUpdated }: Omit<Props, 'onClos
           <div className="text-sm text-gray-500 mt-1">
             {new Date(doc.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}
           </div>
+          {(doc as any).due_date && (
+            <div className="text-xs mt-1 flex items-center gap-1">
+              <span className="text-gray-400">Échéance:</span>
+              <span className={`font-medium ${
+                !['paid','cancelled'].includes(doc.status) && new Date((doc as any).due_date) < new Date()
+                  ? 'text-red-600'
+                  : 'text-gray-600 dark:text-gray-300'
+              }`}>
+                {new Date((doc as any).due_date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}
+              </span>
+            </div>
+          )}
         </div>
         <span className={STATUS_BADGE[doc.status] ?? 'badge-gray'}>
           {STATUS_LABEL[doc.status] ?? doc.status}
         </span>
       </div>
+      {/* Due date banner */}
+      <DueDateBanner doc={doc} />
 
-      {/* Client */}
       {doc.party_name && (
         <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg px-4 py-3">
           <div className="text-xs text-gray-400 mb-1">
@@ -225,18 +654,23 @@ export default function DocumentDetail({ docId, onUpdated }: Omit<Props, 'onClos
               <span>Payé</span><span>- {fmt(totalPaid)} MAD</span>
             </div>
           )}
-          {remainingAmount > 0.01 && (
+          {remainingAmount > 0.01 && ['invoice', 'purchase_invoice', 'import_invoice'].includes(doc.type) && (
             <div className="flex justify-between text-orange-500 font-semibold text-sm border-t border-gray-100 dark:border-gray-700 pt-1">
               <span>Reste à payer</span><span>{fmt(remainingAmount)} MAD</span>
             </div>
           )}
-          {remainingAmount <= 0.01 && totalPaid > 0 && (
+          {remainingAmount <= 0.01 && totalPaid > 0 && ['invoice', 'purchase_invoice', 'import_invoice'].includes(doc.type) && (
             <div className="flex justify-between text-green-600 font-semibold text-sm border-t border-gray-100 dark:border-gray-700 pt-1">
               <span>✅ Soldé</span><span>0,00 MAD</span>
             </div>
           )}
         </div>
       </div>
+
+      {/* ملخص الاستلام للـ BC */}
+      {doc.type === 'purchase_order' && doc.status !== 'draft' && (
+        <POReceiptSummary docId={doc.id} />
+      )}
 
       {/* Mouvements stock en attente */}
       {doc.pendingMovements && doc.pendingMovements.length > 0 && (
@@ -299,6 +733,9 @@ export default function DocumentDetail({ docId, onUpdated }: Omit<Props, 'onClos
       <div className="flex items-center gap-2 pt-2 border-t border-gray-100 dark:border-gray-700 flex-wrap">
         {/* أزرار الحالة */}
         {doc.status === 'draft' && (
+          <button onClick={() => setEditModal(true)} className="btn-secondary btn-sm">✏️ Modifier</button>
+        )}
+        {doc.status === 'draft' && (
           <button onClick={handleConfirm} className="btn-primary btn-sm">✅ Confirmer</button>
         )}
         {doc.type === 'quote' && doc.status === 'confirmed' && (
@@ -308,6 +745,26 @@ export default function DocumentDetail({ docId, onUpdated }: Omit<Props, 'onClos
               toast('Converti en facture'); load(); onUpdated()
             } catch (e: any) { toast(e.message, 'error') }
           }} className="btn-secondary btn-sm">📄 → Facture</button>
+        )}
+        {doc.type === 'proforma' && doc.status === 'confirmed' && (
+          <button onClick={async () => {
+            try {
+              await api.convertDocument({ sourceId: doc.id, targetType: 'invoice', extra: { payment_method: 'cash' } })
+              toast('Proforma convertie en facture'); load(); onUpdated()
+            } catch (e: any) { toast(e.message, 'error') }
+          }} className="btn-secondary btn-sm">🧾 → Facture</button>
+        )}
+        {doc.type === 'purchase_order' && ['confirmed', 'partial', 'received'].includes(doc.status) && (
+          <button onClick={() => setReceptionModal(true)} className="btn-secondary btn-sm">📥 → Bon de Réception</button>
+        )}
+        {doc.type === 'import_invoice' && doc.status === 'confirmed' && (
+          <button onClick={async () => {
+            try {
+              const result = await api.convertDocument({ sourceId: doc.id, targetType: 'bl_reception', extra: {} }) as any
+              await api.confirmDocument(result.id)
+              toast('Bon de réception créé — Stock en attente ⏳'); load(); onUpdated()
+            } catch (e: any) { toast(e.message, 'error') }
+          }} className="btn-secondary btn-sm">📥 → Bon de Réception</button>
         )}
         {doc.type === 'invoice' && doc.status === 'confirmed' && (
           <button onClick={() => setAvoirModal(true)} className="btn-secondary btn-sm">↩️ Avoir</button>
@@ -320,7 +777,7 @@ export default function DocumentDetail({ docId, onUpdated }: Omit<Props, 'onClos
             } catch (e: any) { toast(e.message, 'error') }
           }} className="btn-secondary btn-sm">🚚 → BL</button>
         )}
-        {doc.type === 'invoice' && (doc.status === 'confirmed' || doc.status === 'partial') && doc.party_id && (
+        {['invoice', 'purchase_invoice', 'import_invoice'].includes(doc.type) && (doc.status === 'confirmed' || doc.status === 'partial') && doc.party_id && (
           <button onClick={() => setPaymentModal(true)} className="btn-primary btn-sm">
             💰 Paiement
           </button>
@@ -328,7 +785,7 @@ export default function DocumentDetail({ docId, onUpdated }: Omit<Props, 'onClos
         {/* séparateur */}
         <div className="flex-1" />
         {/* actions secondaires */}
-        {doc.status !== 'cancelled' && doc.status !== 'paid' && (
+        {!['cancelled','paid','delivered'].includes(doc.status) && (
           <button onClick={() => setCancelConfirm(true)} className="btn-secondary btn-sm text-red-500">🚫 Annuler</button>
         )}
         <button onClick={handlePreview} className="btn-secondary btn-sm">🖨️ PDF</button>
@@ -355,6 +812,23 @@ export default function DocumentDetail({ docId, onUpdated }: Omit<Props, 'onClos
         />
       </Modal>
 
+      {/* Edit Modal — brouillons uniquement */}
+      {editModal && (
+        <Modal open onClose={() => setEditModal(false)}
+          title={`Modifier ${doc.number}`}
+          size="xl">
+          {doc.type === 'purchase_order' ? (
+            <EditPurchaseOrderWrapper doc={doc} onSaved={() => { setEditModal(false); load(); onUpdated() }} onCancel={() => setEditModal(false)} />
+          ) : doc.type === 'purchase_invoice' ? (
+            <EditPurchaseInvoiceWrapper doc={doc} onSaved={() => { setEditModal(false); load(); onUpdated() }} onCancel={() => setEditModal(false)} />
+          ) : doc.type === 'import_invoice' ? (
+            <EditImportWrapper doc={doc} onSaved={() => { setEditModal(false); load(); onUpdated() }} onCancel={() => setEditModal(false)} />
+          ) : (
+            <EditInvoiceWrapper doc={doc} onSaved={() => { setEditModal(false); load(); onUpdated() }} onCancel={() => setEditModal(false)} />
+          )}
+        </Modal>
+      )}
+
       <ConfirmDialog
         open={cancelConfirm}
         title="Annuler ce document"
@@ -364,6 +838,17 @@ export default function DocumentDetail({ docId, onUpdated }: Omit<Props, 'onClos
         onConfirm={handleCancel}
         onCancel={() => setCancelConfirm(false)}
       />
+
+      {/* Réception partielle Modal */}
+      {receptionModal && doc && (
+        <Modal open onClose={() => setReceptionModal(false)} title="Créer un Bon de Réception" size="lg">
+          <PartialReceptionModal
+            doc={doc}
+            onSaved={() => { setReceptionModal(false); load(); onUpdated() }}
+            onCancel={() => setReceptionModal(false)}
+          />
+        </Modal>
+      )}
 
       {/* Stock confirmation dialog */}
       {stockConfirm && (

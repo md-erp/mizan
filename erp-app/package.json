@@ -4,7 +4,7 @@
   "description": "ERP Comptabilité & Facturation — Desktop App",
   "main": "dist-electron/main.js",
   "scripts": {
-    "dev": "concurrently \"vite\" \"wait-on tcp:5173 && NODE_ENV=development VITE_PORT=5173 electron .\"",
+    "dev": "concurrently \"vite\" \"wait-on tcp:5174 && NODE_ENV=development VITE_PORT=5174 electron .\"",
     "postinstall": "electron-rebuild -f -w better-sqlite3 2>/dev/null || true",
     "build:renderer": "tsc && vite build",
     "build:electron": "tsc -p tsconfig.electron.json",

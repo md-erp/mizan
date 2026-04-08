@@ -22,7 +22,7 @@ const DOC_PREFIXES = {
 };
 function generateDocumentNumber(docType) {
     const db = (0, connection_1.getDb)();
-    const year = new Date().getFullYear();
+    const year = new Date().getFullYear() % 100; // 2026 → 26
     const prefix = DOC_PREFIXES[docType] ?? 'DOC';
     const tx = db.transaction(() => {
         db.prepare(`
@@ -31,7 +31,7 @@ function generateDocumentNumber(docType) {
       ON CONFLICT(doc_type, year) DO UPDATE SET last_seq = last_seq + 1
     `).run(docType, year);
         const row = db.prepare('SELECT last_seq FROM document_sequences WHERE doc_type = ? AND year = ?').get(docType, year);
-        return `${prefix}-${year}-${String(row.last_seq).padStart(4, '0')}`;
+        return `${prefix}-${year}-${row.last_seq}`;
     });
     return tx();
 }
@@ -93,9 +93,10 @@ function confirmDocument(id, userId) {
         (0, accounting_service_1.createAccountingEntry)(db, doc, lines, userId);
         // إنشاء حركات المخزون المعلقة
         if (doc.type === 'bl') {
-            // التحقق من المخزون الكافي
+            // التحقق من المخزون الكافي قبل التأكيد
             for (const line of lines) {
-                if (!line.product_id) continue;
+                if (!line.product_id)
+                    continue;
                 const product = db.prepare('SELECT name, stock_quantity, unit FROM products WHERE id = ?').get(line.product_id);
                 if (product && product.stock_quantity < line.quantity) {
                     throw new Error(`Stock insuffisant pour "${product.name}": disponible ${product.stock_quantity} ${product.unit}, demandé ${line.quantity} ${product.unit}`);
@@ -103,7 +104,8 @@ function confirmDocument(id, userId) {
             }
             // BL بيع → خروج مخزون
             for (const line of lines) {
-                if (!line.product_id) continue;
+                if (!line.product_id)
+                    continue;
                 (0, stock_service_1.createStockMovement)(db, {
                     product_id: line.product_id,
                     type: 'out',
@@ -115,12 +117,12 @@ function confirmDocument(id, userId) {
                     created_by: userId,
                 });
             }
-            // تحديث حالة الفاتورة المرتبطة
+            // تحديث حالة الفاتورة المرتبطة إذا وجدت
             const linkedInvoice = db.prepare(`
-                SELECT d.id FROM document_links dl
-                JOIN documents d ON d.id = dl.parent_id
-                WHERE dl.child_id = ? AND d.type = 'invoice' AND d.status = 'confirmed'
-            `).get(id);
+        SELECT d.id, d.total_ttc FROM document_links dl
+        JOIN documents d ON d.id = dl.parent_id
+        WHERE dl.child_id = ? AND d.type = 'invoice' AND d.status = 'confirmed'
+      `).get(id);
             if (linkedInvoice) {
                 db.prepare(`UPDATE documents SET status = 'delivered', updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(linkedInvoice.id);
             }
@@ -141,6 +143,35 @@ function confirmDocument(id, userId) {
                     created_by: userId,
                 });
             }
+            // Recalculer statut BC parent (partiel ou reçu)
+            const linkedBC = db.prepare(`
+        SELECT d.id FROM document_links dl
+        JOIN documents d ON d.id = dl.parent_id
+        WHERE dl.child_id = ? AND d.type = 'purchase_order' AND d.status IN ('confirmed','partial')
+      `).get(id);
+            if (linkedBC) {
+                const poId = linkedBC.id;
+                const poLines = db.prepare('SELECT * FROM document_lines WHERE document_id = ?').all(poId);
+                const brIds = db.prepare(`
+          SELECT dl2.child_id as id FROM document_links dl2
+          JOIN documents d2 ON d2.id = dl2.child_id
+          WHERE dl2.parent_id = ? AND d2.type = 'bl_reception' AND d2.status != 'cancelled'
+        `).all(poId).map((r) => r.id);
+                const received = {};
+                for (const brId of brIds) {
+                    for (const l of db.prepare('SELECT * FROM document_lines WHERE document_id = ?').all(brId)) {
+                        const key = l.product_id ? `p_${l.product_id}` : `d_${l.description}`;
+                        received[key] = (received[key] ?? 0) + Number(l.quantity);
+                    }
+                }
+                const fullyReceived = poLines.every((l) => {
+                    const key = l.product_id ? `p_${l.product_id}` : `d_${l.description}`;
+                    return (received[key] ?? 0) >= Number(l.quantity);
+                });
+                db.prepare(`UPDATE documents SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(
+                    fullyReceived ? 'received' : 'partial', poId
+                );
+            }
         }
         else if (doc.type === 'avoir') {
             // Avoir: فقط retour يؤثر على المخزون
@@ -151,7 +182,7 @@ function confirmDocument(id, userId) {
                         continue;
                     (0, stock_service_1.createStockMovement)(db, {
                         product_id: line.product_id,
-                        type: 'in', // إرجاع = دخول مخزون
+                        type: 'in',
                         quantity: line.quantity,
                         unit_cost: line.unit_price,
                         document_id: id,
@@ -159,6 +190,42 @@ function confirmDocument(id, userId) {
                         applied: false,
                         created_by: userId,
                     });
+                }
+            }
+            // ① Annulation → marquer la facture source comme annulée
+            if (avoir?.avoir_type === 'annulation') {
+                const link = db.prepare(`
+          SELECT dl.parent_id FROM document_links dl
+          JOIN documents d ON d.id = dl.parent_id
+          WHERE dl.child_id = ? AND d.type = 'invoice'
+        `).get(id);
+                if (link?.parent_id) {
+                    db.prepare(`UPDATE documents SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(link.parent_id);
+                }
+            }
+            // ② Commercial / Retour → imputer l'avoir sur la facture source
+            if (avoir?.avoir_type === 'commercial' || avoir?.avoir_type === 'retour') {
+                const link = db.prepare(`
+          SELECT dl.parent_id FROM document_links dl
+          JOIN documents d ON d.id = dl.parent_id
+          WHERE dl.child_id = ? AND d.type = 'invoice'
+        `).get(id);
+                if (link?.parent_id) {
+                    const payResult = db.prepare(`
+            INSERT INTO payments (party_id, party_type, amount, method, date, status, document_id, notes, created_by)
+            VALUES (?, ?, ?, 'avoir', ?, 'cleared', ?, ?, 1)
+          `).run(doc.party_id, doc.party_type, doc.total_ttc, doc.date, link.parent_id, `Avoir ${doc.number}`);
+                    const payId = payResult.lastInsertRowid;
+                    db.prepare('INSERT INTO payment_allocations (payment_id, document_id, amount) VALUES (?, ?, ?)').run(payId, link.parent_id, doc.total_ttc);
+                    const invDoc = db.prepare('SELECT total_ttc, type FROM documents WHERE id = ?').get(link.parent_id);
+                    const paid = db.prepare('SELECT COALESCE(SUM(amount), 0) as total FROM payment_allocations WHERE document_id = ?').get(link.parent_id).total;
+                    if (paid >= invDoc.total_ttc - 0.01) {
+                        db.prepare(`UPDATE documents SET status = 'paid', updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(link.parent_id);
+                        db.prepare('UPDATE doc_invoices SET payment_status = ? WHERE document_id = ?').run('paid', link.parent_id);
+                    } else if (paid > 0) {
+                        db.prepare(`UPDATE documents SET status = 'partial', updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(link.parent_id);
+                        db.prepare('UPDATE doc_invoices SET payment_status = ? WHERE document_id = ?').run('partial', link.parent_id);
+                    }
                 }
             }
         }

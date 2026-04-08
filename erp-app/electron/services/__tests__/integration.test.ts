@@ -204,7 +204,7 @@ describe('Integration Tests — Flux complets', () => {
 
   describe('Flux 5: Coherence des sequences de numerotation', () => {
     it('les numeros sont uniques et sequentiels meme avec plusieurs types', () => {
-      const year = new Date().getFullYear()
+      const year = new Date().getFullYear() % 100
       const docs = []
 
       for (let i = 0; i < 3; i++) {
@@ -216,9 +216,9 @@ describe('Integration Tests — Flux complets', () => {
         }))
       }
 
-      expect(docs[0].number).toBe(`F-${year}-0001`)
-      expect(docs[1].number).toBe(`F-${year}-0002`)
-      expect(docs[2].number).toBe(`F-${year}-0003`)
+      expect(docs[0].number).toBe(`F-${year}-1`)
+      expect(docs[1].number).toBe(`F-${year}-2`)
+      expect(docs[2].number).toBe(`F-${year}-3`)
 
       // Les devis ont leur propre sequence
       const devis = createDocument({
@@ -227,7 +227,7 @@ describe('Integration Tests — Flux complets', () => {
         lines: [{ quantity: 1, unit_price: 100, tva_rate: 20 }],
         created_by: 1,
       })
-      expect(devis.number).toBe(`D-${year}-0001`)
+      expect(devis.number).toBe(`D-${year}-1`)
     })
   })
 })

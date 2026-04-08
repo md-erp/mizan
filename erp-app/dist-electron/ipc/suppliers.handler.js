@@ -24,15 +24,11 @@ function registerSupplierHandlers() {
             : `SELECT COUNT(*) as c FROM suppliers WHERE is_deleted = 0`;
         const countParams = filters?.search ? [`%${filters.search}%`, `%${filters.search}%`, `%${filters.search}%`] : [];
         const total = db.prepare(countQuery).get(...countParams).c;
+        // إضافة balance لكل مورد
         const rowsWithBalance = rows.map(supplier => {
-            const balance = db.prepare(`
-                SELECT COALESCE(SUM(d.total_ttc), 0) - COALESCE(SUM(pa.amount), 0) as balance
-                FROM documents d
-                LEFT JOIN payment_allocations pa ON pa.document_id = d.id
-                WHERE d.party_id = ? AND d.party_type = 'supplier'
-                  AND d.type IN ('purchase_invoice', 'import_invoice') AND d.is_deleted = 0
-                  AND d.status IN ('confirmed', 'partial', 'paid')
-            `).get(supplier.id).balance;
+            const invRow = db.prepare(`SELECT COALESCE(SUM(total_ttc),0) as t FROM documents WHERE party_id=? AND party_type='supplier' AND type IN ('purchase_invoice','import_invoice') AND is_deleted=0 AND status IN ('confirmed','partial','paid','delivered')`).get(supplier.id);
+          const payRow = db.prepare(`SELECT COALESCE(SUM(amount),0) as t FROM payments WHERE party_id=? AND party_type='supplier' AND NOT (method IN ('cheque','lcn') AND status='pending') AND status!='bounced'`).get(supplier.id);
+          const balance = (invRow.t ?? 0) - (payRow.t ?? 0);
             return { ...supplier, balance };
         });
         return { rows: rowsWithBalance, total, page, limit };
@@ -42,14 +38,10 @@ function registerSupplierHandlers() {
         const supplier = db.prepare('SELECT * FROM suppliers WHERE id = ? AND is_deleted = 0').get(id);
         if (!supplier)
             throw new Error('Fournisseur introuvable');
-        const balance = db.prepare(`
-            SELECT COALESCE(SUM(d.total_ttc), 0) - COALESCE(SUM(pa.amount), 0) as balance
-            FROM documents d
-            LEFT JOIN payment_allocations pa ON pa.document_id = d.id
-            WHERE d.party_id = ? AND d.party_type = 'supplier'
-              AND d.type IN ('purchase_invoice', 'import_invoice') AND d.is_deleted = 0
-              AND d.status IN ('confirmed', 'partial', 'paid')
-        `).get(id).balance;
+        // Solde: somme des TTC non payées (fac confirmées uniquement)
+        const invRow2 = db.prepare(`SELECT COALESCE(SUM(total_ttc),0) as t FROM documents WHERE party_id=? AND party_type='supplier' AND type IN ('purchase_invoice','import_invoice') AND is_deleted=0 AND status IN ('confirmed','partial','paid','delivered')`).get(id);
+      const payRow2 = db.prepare(`SELECT COALESCE(SUM(amount),0) as t FROM payments WHERE party_id=? AND party_type='supplier' AND NOT (method IN ('cheque','lcn') AND status='pending') AND status!='bounced'`).get(id);
+      const balance = (invRow2.t ?? 0) - (payRow2.t ?? 0);
         return { ...supplier, balance };
     });
     (0, index_1.handle)('suppliers:create', (data) => {

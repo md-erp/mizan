@@ -17,7 +17,8 @@ function createStockMovement(db, input) {
        date, notes, created_by)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(input.product_id, input.type, input.quantity, input.unit_cost ?? 0, product.cmup_price, 0, // cmup_after يُحسب عند التطبيق
-    0, input.document_id ?? null, input.production_id ?? null, input.transformation_id ?? null, input.manual_ref ?? null, input.date, input.notes ?? null, input.created_by).lastInsertRowid;
+    0, // دائماً 0 عند الإنشاء، يُطبق بعدها
+    input.document_id ?? null, input.production_id ?? null, input.transformation_id ?? null, input.manual_ref ?? null, input.date, input.notes ?? null, input.created_by).lastInsertRowid;
     if (input.applied) {
         applyMovement(db, movId, input.created_by);
     }
@@ -30,8 +31,10 @@ function applyMovement(db, movementId, userId) {
     const mov = db.prepare('SELECT * FROM stock_movements WHERE id = ?').get(movementId);
     if (!mov)
         throw new Error('Mouvement introuvable');
-    if (mov.applied)
+    if (mov.applied === 1)
         throw new Error('Mouvement déjà appliqué');
+    if (mov.applied === -1)
+        throw new Error('Mouvement annulé, impossible de l\'appliquer');
     const product = db.prepare('SELECT * FROM products WHERE id = ?').get(mov.product_id);
     let newQuantity;
     let newCmup;

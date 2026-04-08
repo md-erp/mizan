@@ -23,6 +23,7 @@ function registerPdfHandlers() {
             defaultPath: defaultName,
             filters: [{ name: 'PDF', extensions: ['pdf'] }],
         });
+        win?.focus();
         if (result.canceled || !result.filePath)
             return { success: false, canceled: true };
         const pdfWin = new electron_1.BrowserWindow({

@@ -1,6 +1,8 @@
 import { useEffect, useState, useCallback } from 'react'
 import { api } from '../../lib/api'
 import Pagination from '../../components/ui/Pagination'
+import Drawer from '../../components/ui/Drawer'
+import DocumentDetail from '../../components/DocumentDetail'
 import type { StockMovement } from '../../types'
 
 const LIMIT = 50
@@ -12,6 +14,7 @@ export default function MovementsList() {
   const [loading, setLoading] = useState(false)
   const [filter, setFilter] = useState<'all' | 'pending' | 'applied'>('all')
   const [search, setSearch] = useState('')
+  const [selectedDocId, setSelectedDocId] = useState<number | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -36,6 +39,12 @@ export default function MovementsList() {
   // reset page عند تغيير الفلتر
   useEffect(() => { setPage(1) }, [filter])
 
+  useEffect(() => {
+    const handler = () => load()
+    window.addEventListener('app:refresh', handler)
+    return () => window.removeEventListener('app:refresh', handler)
+  }, [load])
+
   async function handleApply(id: number) {
     try {
       await api.applyStockMovement(id)
@@ -45,14 +54,40 @@ export default function MovementsList() {
     }
   }
 
+  async function handleDelete(m: StockMovement) {
+    if (m.document_id) {
+      if (!confirm('Annuler le document lié à ce mouvement ?')) return
+      try {
+        await api.cancelDocument(m.document_id)
+        load()
+      } catch (e: any) { alert(e.message) }
+    } else {
+      if (!confirm('Supprimer ce mouvement en attente ?')) return
+      try {
+        await api.deleteStockMovement(m.id)
+        load()
+      } catch (e: any) { alert(e.message) }
+    }
+  }
+
   const fmt = (n: number) => new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n)
 
-  function getSource(m: StockMovement): string {
-    if (m.document_id)       return `Document #${m.document_id}`
-    if (m.production_id)     return `Production #${m.production_id}`
-    if (m.transformation_id) return `Transformation #${m.transformation_id}`
-    if (m.manual_ref)        return m.manual_ref
-    return '—'
+  const DOC_TYPE_LABELS: Record<string, string> = {
+    invoice: 'Facture', quote: 'Devis', bl: 'Bon de livraison',
+    proforma: 'Proforma', avoir: 'Avoir', purchase_order: 'Bon de commande',
+    bl_reception: 'Réception', purchase_invoice: 'Facture achat', import_invoice: 'Facture import',
+  }
+
+  function getSource(m: StockMovement): { text: string; clickable: boolean } {
+    if (m.document_id) {
+      const typeLabel = m.document_type ? (DOC_TYPE_LABELS[m.document_type] ?? m.document_type) : 'Document'
+      const num = m.document_number ?? `#${m.document_id}`
+      return { text: `${typeLabel} ${num}`, clickable: true }
+    }
+    if (m.production_id)     return { text: `Ordre de prod. #${m.production_id}`, clickable: false }
+    if (m.transformation_id) return { text: `Transformation #${m.transformation_id}`, clickable: false }
+    if (m.manual_ref)        return { text: m.manual_ref, clickable: false }
+    return { text: '—', clickable: false }
   }
 
   const filtered = rows.filter(m =>
@@ -86,84 +121,119 @@ export default function MovementsList() {
 
       {/* Table */}
       <div className="card flex-1 overflow-auto">
-        <table className="w-full text-sm">
+        <table className="w-full text-sm table-fixed border-collapse">
+          <colgroup>
+            <col style={{ width: '88px' }} />
+            <col style={{ width: '180px' }} />
+            <col style={{ width: '90px' }} />
+            <col style={{ width: '96px' }} />
+            <col style={{ width: '120px' }} />
+            <col style={{ width: '168px' }} />
+            <col style={{ width: '130px' }} />
+            <col style={{ width: '120px' }} />
+          </colgroup>
           <thead className="bg-gray-50 dark:bg-gray-700/50 sticky top-0">
-            <tr>
-              <th className="px-4 py-3 text-left font-medium text-gray-600">Date</th>
-              <th className="px-4 py-3 text-left font-medium text-gray-600">Produit</th>
-              <th className="px-4 py-3 text-center font-medium text-gray-600">Mouvement</th>
-              <th className="px-4 py-3 text-right font-medium text-gray-600">Quantité</th>
-              <th className="px-4 py-3 text-right font-medium text-gray-600">Coût unit.</th>
-              <th className="px-4 py-3 text-right font-medium text-gray-600">CMUP avant → après</th>
-              <th className="px-4 py-3 text-left font-medium text-gray-600">Source</th>
-              <th className="px-4 py-3 text-center font-medium text-gray-600">Statut</th>
-              <th className="px-4 py-3 w-28"></th>
+            <tr className="divide-x divide-gray-200 dark:divide-gray-600">
+              <th className="px-2 py-3 text-center font-medium text-gray-600 whitespace-nowrap">Date</th>
+              <th className="px-3 py-3 text-center font-medium text-gray-600">Produit</th>
+              <th className="px-2 py-3 text-center font-medium text-gray-600 whitespace-nowrap">Mouvement</th>
+              <th className="px-2 py-3 text-center font-medium text-gray-600 whitespace-nowrap">Quantité</th>
+              <th className="px-2 py-3 text-center font-medium text-gray-600 whitespace-nowrap">Coût unitaire</th>
+              <th className="px-2 py-3 text-center font-medium text-gray-600 whitespace-nowrap">CMUP avant → après</th>
+              <th className="px-2 py-3 text-center font-medium text-gray-600 whitespace-nowrap">Source</th>
+              <th className="px-2 py-3 text-center font-medium text-gray-600 whitespace-nowrap">Statut</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-            {loading && (
-              [...Array(5)].map((_, i) => (
-                <tr key={i} className="animate-pulse">
-                  {[...Array(9)].map((_, j) => (
-                    <td key={j} className="px-4 py-3">
-                      <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-3/4"></div>
-                    </td>
-                  ))}
-                </tr>
-              ))
-            )}
+            {loading && [...Array(5)].map((_, i) => (
+              <tr key={i} className="animate-pulse">
+                {[...Array(8)].map((_, j) => (
+                  <td key={j} className="px-3 py-3">
+                    <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-3/4"></div>
+                  </td>
+                ))}
+              </tr>
+            ))}
             {!loading && filtered.length === 0 && (
-              <tr><td colSpan={9} className="text-center py-16">
+              <tr><td colSpan={8} className="text-center py-16">
                 <div className="text-4xl mb-3">📋</div>
                 <div className="text-gray-500 font-medium">Aucun mouvement</div>
                 <div className="text-gray-400 text-xs mt-1">Les mouvements apparaissent lors de la confirmation des documents</div>
               </td></tr>
             )}
             {!loading && filtered.map(m => (
-              <tr key={m.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/30">
-                <td className="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">
+              <tr key={m.id} className="group hover:bg-gray-50 dark:hover:bg-gray-700/30 divide-x divide-gray-100 dark:divide-gray-700">
+                {/* Date */}
+                <td className="px-2 py-3 text-center text-gray-500 text-xs whitespace-nowrap">
                   {new Date(m.date).toLocaleDateString('fr-FR')}
                 </td>
-                <td className="px-4 py-3">
-                  <div className="font-medium">{m.product_name}</div>
-                  <div className="text-xs text-gray-400 font-mono">{m.product_code} · {m.unit}</div>
+                {/* Produit */}
+                <td className="px-3 py-3 min-w-0 text-center">
+                  <div className="font-medium truncate">{m.product_name}</div>
+                  <div className="text-xs text-gray-400 font-mono truncate">{m.product_code} · {m.unit}</div>
                 </td>
-                <td className="px-4 py-3 text-center">
-                  <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold
+                {/* Mouvement */}
+                <td className="px-2 py-3 text-center">
+                  <span className={`inline-flex items-center justify-center gap-1 px-2 py-1 rounded-full text-xs font-bold w-full
                     ${m.type === 'in'
                       ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
                       : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'}`}>
                     {m.type === 'in' ? '▲ Entrée' : '▼ Sortie'}
                   </span>
                 </td>
-                <td className="px-4 py-3 text-right">
-                  <span className={`font-bold text-base ${m.type === 'in' ? 'text-green-600' : 'text-red-500'}`}>
+                {/* Quantité */}
+                <td className="px-2 py-3 text-center">
+                  <span className={`font-bold ${m.type === 'in' ? 'text-green-600' : 'text-red-500'}`}>
                     {m.type === 'in' ? '+' : '-'}{fmt(m.quantity)}
                   </span>
                 </td>
-                <td className="px-4 py-3 text-right text-gray-600 text-xs">{fmt(m.unit_cost)} MAD</td>
-                <td className="px-4 py-3 text-right text-xs text-gray-500">
+                {/* Coût unitaire */}
+                <td className="px-2 py-3 text-center text-gray-600 text-xs whitespace-nowrap">{fmt(m.unit_cost)} MAD</td>
+                {/* CMUP */}
+                <td className="px-2 py-3 text-center text-xs text-gray-500 whitespace-nowrap">
                   {m.applied
                     ? <span>{fmt(m.cmup_before)} <span className="text-gray-300">→</span> <span className="font-medium text-gray-700 dark:text-gray-300">{fmt(m.cmup_after)}</span></span>
                     : <span className="text-gray-400">{fmt(m.cmup_before)} → ?</span>
                   }
                 </td>
-                <td className="px-4 py-3">
-                  <div className="text-xs text-primary font-medium">{getSource(m)}</div>
-                  {m.notes && <div className="text-xs text-gray-400 mt-0.5">{m.notes}</div>}
+                {/* Source */}
+                <td className="px-2 py-3 min-w-0 text-center">
+                  {(() => {
+                    const src = getSource(m)
+                    return src.clickable
+                      ? <button
+                          onClick={() => setSelectedDocId(m.document_id!)}
+                          className="text-xs text-primary font-medium hover:underline truncate block w-full"
+                          title={src.text}
+                        >{src.text}</button>
+                      : <span className="text-xs text-gray-500 truncate block">{src.text}</span>
+                  })()}
+                  {m.notes && <div className="text-xs text-gray-400 truncate mt-0.5">{m.notes}</div>}
                 </td>
-                <td className="px-4 py-3 text-center">
+                {/* Statut */}
+                <td className="px-2 py-3 text-center whitespace-nowrap">
                   {m.applied
                     ? <span className="badge-green">✅ Appliqué</span>
-                    : <span className="badge-orange">⏳ En attente</span>
+                    : <div className="relative inline-block">
+                        <span className="badge-orange group-hover:hidden">⏳</span>
+                        <div className="hidden group-hover:flex items-center gap-1 justify-center">
+                          <button
+                            onClick={() => handleApply(m.id)}
+                            className="p-1 rounded-full bg-green-100 text-green-600 hover:bg-green-200 hover:scale-110 transition-all"
+                            title="Appliquer"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                          </button>
+                          <button
+                            onClick={() => handleDelete(m)}
+                            className="p-1 rounded-full bg-red-100 text-red-500 hover:bg-red-200 hover:scale-110 transition-all"
+                            title="Supprimer"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                          </button>
+                        </div>
+                      </div>
                   }
-                </td>
-                <td className="px-4 py-3 text-right">
-                  {!m.applied && (
-                    <button onClick={() => handleApply(m.id)} className="btn-primary btn-sm text-xs">
-                      Appliquer
-                    </button>
-                  )}
                 </td>
               </tr>
             ))}
@@ -181,6 +251,13 @@ export default function MovementsList() {
         </div>
         <Pagination page={page} total={total} limit={LIMIT} onChange={setPage} />
       </div>
+
+      {/* Document Drawer */}
+      <Drawer open={selectedDocId !== null} onClose={() => setSelectedDocId(null)} title="Détails du document">
+        {selectedDocId !== null && (
+          <DocumentDetail docId={selectedDocId} onClose={() => setSelectedDocId(null)} onUpdated={load} />
+        )}
+      </Drawer>
     </div>
   )
 }

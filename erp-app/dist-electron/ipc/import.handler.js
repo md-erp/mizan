@@ -19,6 +19,7 @@ function registerImportHandlers() {
             ],
             properties: ['openFile'],
         });
+        win?.focus();
         if (result.canceled || result.filePaths.length === 0)
             return null;
         return result.filePaths[0];

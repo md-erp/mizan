@@ -11,6 +11,8 @@ async function chooseExportPath(defaultName) {
         defaultPath: defaultName,
         filters: [{ name: 'Excel', extensions: ['xlsx'] }],
     });
+    // Redonner le focus à la fenêtre principale après le dialog
+    win?.focus();
     if (result.canceled || !result.filePath)
         return null;
     return result.filePath;
@@ -54,6 +56,7 @@ function registerExcelHandlers() {
             defaultPath: `rapports-${new Date().toISOString().split('T')[0]}.xlsx`,
             filters: [{ name: 'Excel', extensions: ['xlsx'] }],
         });
+        win?.focus();
         if (result.canceled || !result.filePath)
             return null;
         return (0, excel_service_1.exportMultipleReports)(data.reports, result.filePath);

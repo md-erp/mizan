@@ -55,6 +55,7 @@ function registerAttachmentsHandlers() {
             ],
             properties: ['openFile', 'multiSelections'],
         });
+        win?.focus();
         if (result.canceled || result.filePaths.length === 0)
             return [];
         const dir = getAttachmentsDir(data.entityType, data.entityId);

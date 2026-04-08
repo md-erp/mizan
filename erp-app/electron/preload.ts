@@ -40,6 +40,7 @@ const api = {
   // --- Stock ---
   getStockMovements:  (filters?: unknown) => ipcRenderer.invoke('stock:getMovements', filters),
   applyStockMovement: (id: number)        => ipcRenderer.invoke('stock:applyMovement', id),
+  deleteStockMovement:(id: number)        => ipcRenderer.invoke('stock:deleteMovement', id),
   createManualMovement: (data: unknown)   => ipcRenderer.invoke('stock:createManual', data),
   getProductStats:      (id: number)      => ipcRenderer.invoke('stock:getProductStats', id),
 
@@ -52,6 +53,9 @@ const api = {
   cancelDocument:     (id: number)        => ipcRenderer.invoke('documents:cancel', id),
   convertDocument:    (data: unknown)     => ipcRenderer.invoke('documents:convert', data),
   linkDocuments:      (data: unknown)     => ipcRenderer.invoke('documents:link', data),
+  getPOReceiptStatus:   (id: number)        => ipcRenderer.invoke('documents:getPOReceiptStatus', id),
+  getCancelImpact:      (id: number)        => ipcRenderer.invoke('documents:getCancelImpact', id),
+  cancelWithOptions:    (data: unknown)     => ipcRenderer.invoke('documents:cancelWithOptions', data),
 
   // --- Payments ---
   getPayments:        (filters?: unknown) => ipcRenderer.invoke('payments:getAll', filters),
@@ -66,15 +70,19 @@ const api = {
   createImportInvoice:(data: unknown)     => ipcRenderer.invoke('documents:create', data),
 
   // --- Production ---
-  getProductionOrders:(filters?: unknown) => ipcRenderer.invoke('production:getAll', filters),
-  createProduction:   (data: unknown)     => ipcRenderer.invoke('production:create', data),
-  confirmProduction:  (id: number)        => ipcRenderer.invoke('production:confirm', id),
-  getBomTemplates:    (productId: number) => ipcRenderer.invoke('production:getBoms', productId),
-  createBomTemplate:  (data: unknown)     => ipcRenderer.invoke('production:createBom', data),
+  getProductionOrders: (filters?: unknown)          => ipcRenderer.invoke('production:getAll', filters),
+  createProduction:    (data: unknown)               => ipcRenderer.invoke('production:create', data),
+  confirmProduction:   (id: number, userId: number)  => ipcRenderer.invoke('production:confirm', id, userId),
+  cancelProduction:    (id: number, userId: number)  => ipcRenderer.invoke('production:cancel', id, userId),
+  getBomTemplates:     (productId: number)           => ipcRenderer.invoke('production:getBoms', productId),
+  getAllBoms:          ()                             => ipcRenderer.invoke('production:getAllBoms'),
+  createBomTemplate:   (data: unknown)               => ipcRenderer.invoke('production:createBom', data),
+  updateBomTemplate:   (data: unknown)               => ipcRenderer.invoke('production:updateBom', data),
+  deleteBomTemplate:   (id: number)                  => ipcRenderer.invoke('production:deleteBom', id),
 
   // --- Transformations ---
-  getTransformations: (filters?: unknown) => ipcRenderer.invoke('transformations:getAll', filters),
-  createTransformation:(data: unknown)    => ipcRenderer.invoke('transformations:create', data),
+  getTransformations:  (filters?: unknown) => ipcRenderer.invoke('transformations:getAll', filters),
+  createTransformation:(data: unknown)     => ipcRenderer.invoke('transformations:create', data),
 
   // --- Accounting ---
   getAccounts:        (filters?: unknown) => ipcRenderer.invoke('accounting:getAccounts', filters),

@@ -12,8 +12,7 @@ export default function PartiesPage() {
               className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all
                 ${tab === t
                   ? 'bg-white dark:bg-gray-700 text-primary shadow-sm border border-gray-200 dark:border-gray-600'
-                  : 'text-gray-500 hover:text-gray-700 hover:bg-white/60 dark:hover:bg-gray-700/50'
-                }`}>
+                  : 'text-gray-500 hover:text-gray-700 hover:bg-white/60 dark:hover:bg-gray-700/50'}`}>
               {t === 'client' ? 'Clients' : 'Fournisseurs'}
             </button>
           ))}

@@ -1,11 +1,14 @@
 import { useState, useEffect } from 'react'
 import { api } from '../../lib/api'
+import { useAuthStore } from '../../store/auth.store'
 import { toast } from '../../components/ui/Toast'
 import type { Product } from '../../types'
 
 interface Props { onSaved: () => void; onCancel: () => void }
 
 export default function ProductionForm({ onSaved, onCancel }: Props) {
+  const { user } = useAuthStore()
+  const userId = user?.id ?? 1
   const [products, setProducts] = useState<Product[]>([])
   const [boms, setBoms] = useState<any[]>([])
   const [selectedProduct, setSelectedProduct] = useState<number>(0)
@@ -47,7 +50,7 @@ export default function ProductionForm({ onSaved, onCancel }: Props) {
         product_id: selectedProduct,
         bom_id: selectedBom || null,
         quantity, date, notes,
-        created_by: 1,
+        created_by: userId,
       })
       toast('Ordre créé avec succès')
       onSaved()

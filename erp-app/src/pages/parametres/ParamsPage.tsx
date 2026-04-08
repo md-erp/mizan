@@ -7,15 +7,17 @@ import BackupSettings from './BackupSettings'
 import LicenseSettings from './LicenseSettings'
 import TvaSettings from './TvaSettings'
 import AuditSettings from './AuditSettings'
+import InvoiceTemplateSettings from './InvoiceTemplateSettings'
 
 const SECTIONS = [
-  { id: 'company',  label: 'Entreprise',    icon: '🏢' },
-  { id: 'network',  label: 'Réseau',         icon: '🌐' },
-  { id: 'tva',      label: 'TVA',            icon: '🧾' },
-  { id: 'users',    label: 'Utilisateurs',   icon: '👥' },
-  { id: 'backup',   label: 'Sauvegarde',     icon: '💾' },
-  { id: 'licence',  label: 'Licence',        icon: '🔑' },
-  { id: 'audit',    label: 'Audit',          icon: '📋' },
+  { id: 'company',  label: 'Entreprise',       icon: '🏢' },
+  { id: 'template', label: 'Modèle facture',   icon: '🖨️' },
+  { id: 'network',  label: 'Réseau',            icon: '🌐' },
+  { id: 'tva',      label: 'TVA',               icon: '🧾' },
+  { id: 'users',    label: 'Utilisateurs',      icon: '👥' },
+  { id: 'backup',   label: 'Sauvegarde',        icon: '💾' },
+  { id: 'licence',  label: 'Licence',           icon: '🔑' },
+  { id: 'audit',    label: 'Audit',             icon: '📋' },
 ] as const
 
 type SectionId = typeof SECTIONS[number]['id']
@@ -23,7 +25,6 @@ type SectionId = typeof SECTIONS[number]['id']
 export default function ParamsPage() {
   const [section, setSection] = useState<SectionId>('company')
   const { user } = useAuthStore()
-
   const isAdmin = user?.role === 'admin'
 
   return (
@@ -45,6 +46,7 @@ export default function ParamsPage() {
       {/* Content */}
       <div className="flex-1 overflow-auto p-6">
         {section === 'company'  && <CompanySettings />}
+        {section === 'template' && <InvoiceTemplateSettings />}
         {section === 'network'  && <NetworkSettings />}
         {section === 'tva'      && <TvaSettings />}
         {section === 'users'    && <UsersSettings isAdmin={isAdmin} />}

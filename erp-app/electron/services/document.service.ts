@@ -20,7 +20,7 @@ const DOC_PREFIXES: Record<string, string> = {
 
 export function generateDocumentNumber(docType: string): string {
   const db = getDb()
-  const year = new Date().getFullYear()
+  const year = new Date().getFullYear() % 100  // 2026 → 26
   const prefix = DOC_PREFIXES[docType] ?? 'DOC'
 
   const tx = db.transaction(() => {
@@ -34,7 +34,7 @@ export function generateDocumentNumber(docType: string): string {
       'SELECT last_seq FROM document_sequences WHERE doc_type = ? AND year = ?'
     ).get(docType, year) as { last_seq: number }
 
-    return `${prefix}-${year}-${String(row.last_seq).padStart(4, '0')}`
+    return `${prefix}-${year}-${row.last_seq}`
   })
 
   return tx()
@@ -187,6 +187,37 @@ export function confirmDocument(id: number, userId: number): void {
           created_by: userId,
         })
       }
+
+      // Recalculer statut BC parent (partiel ou reçu)
+      const linkedBC = db.prepare(`
+        SELECT d.id FROM document_links dl
+        JOIN documents d ON d.id = dl.parent_id
+        WHERE dl.child_id = ? AND d.type = 'purchase_order' AND d.status IN ('confirmed','partial')
+      `).get(id) as any
+      if (linkedBC) {
+        const poId = linkedBC.id
+        const poLines = db.prepare('SELECT * FROM document_lines WHERE document_id = ?').all(poId) as any[]
+        const brIds = (db.prepare(`
+          SELECT dl2.child_id as id FROM document_links dl2
+          JOIN documents d2 ON d2.id = dl2.child_id
+          WHERE dl2.parent_id = ? AND d2.type = 'bl_reception' AND d2.status != 'cancelled'
+        `).all(poId) as any[]).map((r: any) => r.id)
+        const received: Record<string, number> = {}
+        for (const brId of brIds) {
+          const brLines = db.prepare('SELECT * FROM document_lines WHERE document_id = ?').all(brId) as any[]
+          for (const l of brLines) {
+            const key = l.product_id ? `p_${l.product_id}` : `d_${l.description}`
+            received[key] = (received[key] ?? 0) + Number(l.quantity)
+          }
+        }
+        const fullyReceived = poLines.every((l: any) => {
+          const key = l.product_id ? `p_${l.product_id}` : `d_${l.description}`
+          return (received[key] ?? 0) >= Number(l.quantity)
+        })
+        db.prepare(`UPDATE documents SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(
+          fullyReceived ? 'received' : 'partial', poId
+        )
+      }
     } else if (doc.type === 'avoir') {
       // Avoir: فقط retour يؤثر على المخزون
       const avoir = db.prepare('SELECT * FROM doc_avoirs WHERE document_id = ?').get(id) as any
@@ -203,6 +234,48 @@ export function confirmDocument(id: number, userId: number): void {
             applied: false,
             created_by: userId,
           })
+        }
+      }
+
+      // ① Annulation → marquer la facture source comme annulée
+      if (avoir?.avoir_type === 'annulation') {
+        const link = db.prepare(`
+          SELECT dl.parent_id FROM document_links dl
+          JOIN documents d ON d.id = dl.parent_id
+          WHERE dl.child_id = ? AND d.type = 'invoice'
+        `).get(id) as any
+        if (link?.parent_id) {
+          db.prepare(`UPDATE documents SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(link.parent_id)
+        }
+      }
+
+      // ② Commercial / Retour → imputer l'avoir sur la facture source
+      if (avoir?.avoir_type === 'commercial' || avoir?.avoir_type === 'retour') {
+        const link = db.prepare(`
+          SELECT dl.parent_id FROM document_links dl
+          JOIN documents d ON d.id = dl.parent_id
+          WHERE dl.child_id = ? AND d.type = 'invoice'
+        `).get(id) as any
+        if (link?.parent_id) {
+          // نُنشئ payment record من نوع 'avoir' لتمثيل التخفيض
+          const payResult = db.prepare(`
+            INSERT INTO payments (party_id, party_type, amount, method, date, status, document_id, notes, created_by)
+            VALUES (?, ?, ?, 'avoir', ?, 'cleared', ?, ?, 1)
+          `).run(doc.party_id, doc.party_type, doc.total_ttc, doc.date, link.parent_id, `Avoir ${doc.number}`)
+          const payId = payResult.lastInsertRowid as number
+
+          db.prepare('INSERT INTO payment_allocations (payment_id, document_id, amount) VALUES (?, ?, ?)').run(
+            payId, link.parent_id, doc.total_ttc
+          )
+          const invDoc = db.prepare('SELECT total_ttc, type FROM documents WHERE id = ?').get(link.parent_id) as any
+          const paid = (db.prepare('SELECT COALESCE(SUM(amount), 0) as total FROM payment_allocations WHERE document_id = ?').get(link.parent_id) as any).total
+          if (paid >= invDoc.total_ttc - 0.01) {
+            db.prepare(`UPDATE documents SET status = 'paid', updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(link.parent_id)
+            db.prepare('UPDATE doc_invoices SET payment_status = ? WHERE document_id = ?').run('paid', link.parent_id)
+          } else if (paid > 0) {
+            db.prepare(`UPDATE documents SET status = 'partial', updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(link.parent_id)
+            db.prepare('UPDATE doc_invoices SET payment_status = ? WHERE document_id = ?').run('partial', link.parent_id)
+          }
         }
       }
     }

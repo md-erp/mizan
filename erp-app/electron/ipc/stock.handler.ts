@@ -11,9 +11,11 @@ export function registerStockHandlers(): void {
     const params: any[] = []
 
     let query = `
-      SELECT sm.*, p.name as product_name, p.unit, p.code as product_code
+      SELECT sm.*, p.name as product_name, p.unit, p.code as product_code,
+             d.number as document_number, d.type as document_type
       FROM stock_movements sm
       JOIN products p ON p.id = sm.product_id
+      LEFT JOIN documents d ON d.id = sm.document_id
       WHERE sm.applied != -1
     `
 
@@ -35,6 +37,24 @@ export function registerStockHandlers(): void {
   handle('stock:applyMovement', (id: number, userId: number = 1) => {
     const db = getDb()
     applyMovement(db, id, userId)
+    // Si tous les mouvements du document sont appliqués → statut 'delivered'
+    const mov = db.prepare('SELECT document_id FROM stock_movements WHERE id = ?').get(id) as any
+    if (mov?.document_id) {
+      const pending = db.prepare('SELECT COUNT(*) as c FROM stock_movements WHERE document_id = ? AND applied = 0').get(mov.document_id) as any
+      if (pending?.c === 0) {
+        db.prepare(`UPDATE documents SET status = 'delivered', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'confirmed' AND type IN ('bl_reception','bl','avoir')`).run(mov.document_id)
+      }
+    }
+    return { success: true }
+  })
+
+  handle('stock:deleteMovement', (id: number) => {
+    const db = getDb()
+    // فقط الحركات غير المطبقة يمكن حذفها
+    const mov = db.prepare('SELECT applied FROM stock_movements WHERE id = ?').get(id) as any
+    if (!mov) throw new Error('Mouvement introuvable')
+    if (mov.applied === 1) throw new Error('Impossible de supprimer un mouvement déjà appliqué')
+    db.prepare('DELETE FROM stock_movements WHERE id = ?').run(id)
     return { success: true }
   })
 
@@ -58,7 +78,7 @@ export function registerStockHandlers(): void {
       FROM document_lines dl
       JOIN documents d ON d.id = dl.document_id
       WHERE dl.product_id = ? AND d.type = 'invoice'
-        AND d.status IN ('confirmed','partial','paid') AND d.is_deleted = 0
+        AND d.status IN ('confirmed','partial','paid','delivered') AND d.is_deleted = 0
     `).get(productId) as any
 
     // مشتريات: من فواتير شراء مؤكدة
@@ -103,3 +123,4 @@ export function registerStockHandlers(): void {
 
     return { sales, purchases, pending, pendingPurchase, recentDocs }
   })
+}

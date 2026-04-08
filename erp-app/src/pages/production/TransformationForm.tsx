@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useAuthStore } from '../../store/auth.store'
 import { api } from '../../lib/api'
 import { toast } from '../../components/ui/Toast'
 import type { Product } from '../../types'
@@ -15,6 +16,8 @@ export default function TransformationForm({ onSaved, onCancel }: Props) {
   const [date, setDate] = useState(new Date().toISOString().split('T')[0])
   const [notes, setNotes] = useState('')
   const [outputs, setOutputs] = useState<OutputLine[]>([{ product_id: 0, quantity: 0 }])
+  const { user } = useAuthStore()
+  const userId = user?.id ?? 1
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
@@ -46,7 +49,7 @@ export default function TransformationForm({ onSaved, onCancel }: Props) {
         input_quantity: inputQty,
         cost_per_unit: costPerUnit,
         date, notes, outputs,
-        created_by: 1,
+        created_by: userId,
       })
       toast('Transformation créée — Stock mis à jour')
       onSaved()

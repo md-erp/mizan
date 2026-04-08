@@ -32,8 +32,16 @@ type NavId = typeof NAV_ITEMS[number]['id']
 
 export default function MainLayout() {
   const [activeNav, setActiveNav] = useState<NavId>('rapports')
+  const [refreshing, setRefreshing] = useState(false)
   const { user, logout } = useAuthStore()
   const { theme, toggleTheme } = useAppStore()
+
+  function handleRefresh() {
+    if (refreshing) return
+    setRefreshing(true)
+    emitRefresh()
+    setTimeout(() => setRefreshing(false), 800)
+  }
 
   const pages: Record<NavId, JSX.Element> = {
     documents:    <DocumentsPage />,
@@ -72,7 +80,8 @@ export default function MainLayout() {
         <button onClick={toggleTheme} className="p-2 rounded-lg hover:bg-white/10 text-primary-100">
           {theme === 'light' ? '🌙' : '☀️'}
         </button>
-        <button onClick={() => emitRefresh()} title="Actualiser" className="p-2 rounded-lg hover:bg-white/10 text-primary-100 text-base">
+        <button onClick={handleRefresh} title="Actualiser"
+          className={`p-2 rounded-lg hover:bg-white/10 text-primary-100 text-base transition-transform ${refreshing ? 'animate-spin' : ''}`}>
           🔄
         </button>
         <NotificationCenter />

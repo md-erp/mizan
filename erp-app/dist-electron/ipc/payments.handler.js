@@ -4,24 +4,36 @@ exports.registerPaymentHandlers = registerPaymentHandlers;
 const index_1 = require("./index");
 const connection_1 = require("../database/connection");
 const accounting_service_1 = require("../services/accounting.service");
+const audit_service_1 = require("../services/audit.service");
 function registerPaymentHandlers() {
     (0, index_1.handle)('payments:getAll', (filters) => {
         const db = (0, connection_1.getDb)();
-        let query = 'SELECT * FROM payments WHERE 1=1';
+        let query = `
+      SELECT p.*,
+        CASE p.party_type WHEN 'client' THEN c.name WHEN 'supplier' THEN s.name END as party_name
+      FROM payments p
+      LEFT JOIN clients   c ON c.id = p.party_id AND p.party_type = 'client'
+      LEFT JOIN suppliers s ON s.id = p.party_id AND p.party_type = 'supplier'
+      WHERE 1=1
+    `;
         const params = [];
         if (filters?.party_id) {
-            query += ' AND party_id = ?';
+            query += ' AND p.party_id = ?';
             params.push(filters.party_id);
         }
         if (filters?.party_type) {
-            query += ' AND party_type = ?';
+            query += ' AND p.party_type = ?';
             params.push(filters.party_type);
         }
         if (filters?.status) {
-            query += ' AND status = ?';
+            query += ' AND p.status = ?';
             params.push(filters.status);
         }
-        query += ' ORDER BY date DESC';
+        if (filters?.document_id) {
+            query += ' AND p.document_id = ?';
+            params.push(filters.document_id);
+        }
+        query += ' ORDER BY p.date DESC';
         return db.prepare(query).all(...params);
     });
     (0, index_1.handle)('payments:create', (data) => {
@@ -33,57 +45,98 @@ function registerPaymentHandlers() {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(data.party_id, data.party_type, data.amount, data.method, data.date, data.due_date ?? null, data.cheque_number ?? null, data.bank ?? null, data.status ?? 'pending', data.document_id ?? null, data.notes ?? null, data.created_by ?? 1);
             const paymentId = result.lastInsertRowid;
-            // تخصيص الدفعة على الفاتورة
-            if (data.document_id) {
+            const isCheque = data.method === 'cheque' || data.method === 'lcn';
+            const isPending = (data.status ?? 'pending') === 'pending';
+            // الشيك/LCN بحالة pending لا يُحسب على الفاتورة حتى يُصرف
+            if (data.document_id && !(isCheque && isPending)) {
                 db.prepare('INSERT INTO payment_allocations (payment_id, document_id, amount) VALUES (?, ?, ?)').run(paymentId, data.document_id, data.amount);
-                // تحديث حالة الفاتورة
                 updateInvoicePaymentStatus(db, data.document_id);
             }
-            // قيد محاسبي تلقائي
-            (0, accounting_service_1.createPaymentEntry)(db, {
-                id: paymentId,
-                party_id: data.party_id,
-                party_type: data.party_type,
-                amount: data.amount,
-                method: data.method,
-                date: data.date,
-                reference: `PAY-${paymentId}`,
-            }, data.created_by ?? 1);
+            // قيد محاسبي فقط للمدفوعات الفعلية
+            if (!(isCheque && isPending)) {
+                (0, accounting_service_1.createPaymentEntry)(db, {
+                    id: paymentId,
+                    party_id: data.party_id,
+                    party_type: data.party_type,
+                    amount: data.amount,
+                    method: data.method,
+                    date: data.date,
+                    reference: `PAY-${paymentId}`,
+                }, data.created_by ?? 1);
+            }
+            (0, audit_service_1.logAudit)(db, {
+                user_id: data.created_by ?? 1,
+                action: 'PAYMENT',
+                table_name: 'payments',
+                record_id: paymentId,
+                new_values: { amount: data.amount, method: data.method, party_type: data.party_type },
+            });
             return { id: paymentId };
         });
         return tx();
     });
     (0, index_1.handle)('payments:update', (data) => {
         const db = (0, connection_1.getDb)();
-        db.prepare(`UPDATE payments SET status=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`).run(data.status, data.id);
-        return { success: true };
+        const tx = db.transaction(() => {
+            const payment = db.prepare('SELECT * FROM payments WHERE id = ?').get(data.id);
+            if (!payment)
+                throw new Error('Paiement introuvable');
+            db.prepare(`UPDATE payments SET status=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`).run(data.status, data.id);
+            const isCheque = payment.method === 'cheque' || payment.method === 'lcn';
+            // عند تحويل شيك من pending إلى cleared → تطبيق على الفاتورة + قيد محاسبي
+            if (isCheque && payment.status === 'pending' && data.status === 'cleared') {
+                if (payment.document_id) {
+                    const existing = db.prepare('SELECT id FROM payment_allocations WHERE payment_id = ?').get(data.id);
+                    if (!existing) {
+                        db.prepare('INSERT INTO payment_allocations (payment_id, document_id, amount) VALUES (?, ?, ?)').run(data.id, payment.document_id, payment.amount);
+                        updateInvoicePaymentStatus(db, payment.document_id);
+                    }
+                }
+                (0, accounting_service_1.createPaymentEntry)(db, {
+                    id: payment.id,
+                    party_id: payment.party_id,
+                    party_type: payment.party_type,
+                    amount: payment.amount,
+                    method: payment.method,
+                    date: new Date().toISOString().split('T')[0],
+                    reference: `PAY-${payment.id}`,
+                }, 1);
+            }
+            // عند إلغاء شيك cleared → إلغاء التخصيص
+            if (isCheque && payment.status === 'cleared' && data.status === 'bounced') {
+                db.prepare('DELETE FROM payment_allocations WHERE payment_id = ?').run(data.id);
+                if (payment.document_id)
+                    updateInvoicePaymentStatus(db, payment.document_id);
+            }
+            return { success: true };
+        });
+        return tx();
+    });
+    (0, index_1.handle)('payments:getPaidAmount', (documentId) => {
+        const db = (0, connection_1.getDb)();
+        const row = db.prepare('SELECT COALESCE(SUM(amount), 0) as total FROM payment_allocations WHERE document_id = ?').get(documentId);
+        return { total: row?.total ?? 0 };
     });
 }
 function updateInvoicePaymentStatus(db, documentId) {
-    const doc = db.prepare('SELECT total_ttc, type FROM documents WHERE id = ?').get(documentId);
-    if (!doc)
-        return;
+    const doc = db.prepare('SELECT total_ttc, type, status FROM documents WHERE id = ?').get(documentId);
+    if (!doc || ['cancelled', 'delivered'].includes(doc.status)) return;
     const paid = db.prepare('SELECT COALESCE(SUM(amount), 0) as total FROM payment_allocations WHERE document_id = ?').get(documentId).total;
-    let status = 'unpaid';
-    if (paid >= doc.total_ttc - 0.01)
-        status = 'paid'; // tolerance 1 centime
-    else if (paid > 0)
-        status = 'partial';
-    // تحديث الجدول الفرعي المناسب
+    let payStatus = 'unpaid';
+    if (paid >= doc.total_ttc - 0.01) payStatus = 'paid';
+    else if (paid > 0) payStatus = 'partial';
     if (doc.type === 'invoice') {
-        db.prepare('UPDATE doc_invoices SET payment_status = ? WHERE document_id = ?').run(status, documentId);
+        db.prepare('UPDATE doc_invoices SET payment_status = ? WHERE document_id = ?').run(payStatus, documentId);
+    } else if (doc.type === 'purchase_invoice') {
+        db.prepare('UPDATE doc_purchase_invoices SET payment_status = ? WHERE document_id = ?').run(payStatus, documentId);
+    } else if (doc.type === 'import_invoice') {
+        db.prepare('UPDATE doc_import_invoices SET payment_status = ? WHERE document_id = ?').run(payStatus, documentId);
     }
-    else if (doc.type === 'purchase_invoice') {
-        db.prepare('UPDATE doc_purchase_invoices SET payment_status = ? WHERE document_id = ?').run(status, documentId);
-    }
-    else if (doc.type === 'import_invoice') {
-        db.prepare('UPDATE doc_import_invoices SET payment_status = ? WHERE document_id = ?').run(status, documentId);
-    }
-    // تحديث حالة المستند الرئيسي
-    if (status === 'paid') {
+    if (payStatus === 'paid') {
         db.prepare(`UPDATE documents SET status = 'paid', updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(documentId);
-    }
-    else if (status === 'partial') {
+    } else if (payStatus === 'partial') {
         db.prepare(`UPDATE documents SET status = 'partial', updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(documentId);
+    } else {
+        db.prepare(`UPDATE documents SET status = 'confirmed', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status IN ('paid', 'partial')`).run(documentId);
     }
 }

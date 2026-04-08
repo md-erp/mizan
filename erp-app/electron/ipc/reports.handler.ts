@@ -27,6 +27,8 @@ export function registerReportHandlers(): void {
         return getPaymentsReport(db, filters)
       case 'payables':
         return getPayablesReport(db, filters)
+      case 'overdue':
+        return getOverdueReport(db, filters)
       default:
         throw new Error(`Type de rapport inconnu: ${type}`)
     }
@@ -98,7 +100,7 @@ function getReceivablesReport(db: any, _filters: any) {
 
 function getChequesReport(db: any, filters: any) {
   const params: any[] = []
-  let where = "WHERE p.method IN ('cheque', 'lcn')"
+  let where = "WHERE p.method IN ('cheque', 'lcn') AND p.status = 'pending'"
   if (filters.start_date) { where += ' AND p.due_date >= ?'; params.push(filters.start_date) }
   if (filters.end_date)   { where += ' AND p.due_date <= ?'; params.push(filters.end_date) }
 
@@ -222,4 +224,39 @@ function getPayablesReport(db: any, _filters: any) {
     HAVING balance > 0
     ORDER BY balance DESC
   `).all()
+}
+
+function getOverdueReport(db: any, filters: any) {
+  const today = new Date().toISOString().split('T')[0]
+  const extraParams: any[] = [today, today]
+  let extra = ''
+  if (filters.client_id) { extra += ' AND d.party_id = ?'; extraParams.push(filters.client_id) }
+
+  return db.prepare(`
+    SELECT
+      d.number,
+      d.date,
+      di.due_date,
+      c.name as client_name,
+      c.phone,
+      d.total_ttc,
+      COALESCE(SUM(pa.amount), 0) as total_paid,
+      d.total_ttc - COALESCE(SUM(pa.amount), 0) as remaining,
+      CAST(julianday(?) - julianday(di.due_date) AS INTEGER) as days_overdue,
+      d.status
+    FROM documents d
+    JOIN doc_invoices di ON di.document_id = d.id
+    LEFT JOIN clients c ON c.id = d.party_id
+    LEFT JOIN payment_allocations pa ON pa.document_id = d.id
+    WHERE d.type = 'invoice'
+      AND d.is_deleted = 0
+      AND d.status NOT IN ('paid', 'cancelled', 'draft')
+      AND di.due_date IS NOT NULL
+      AND di.due_date != ''
+      AND di.due_date < ?
+      ${extra}
+    GROUP BY d.id
+    HAVING remaining > 0.01
+    ORDER BY days_overdue DESC
+  \`).all(...extraParams)
 }

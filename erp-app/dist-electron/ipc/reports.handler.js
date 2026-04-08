@@ -26,6 +26,10 @@ function registerReportHandlers() {
                 return getStockMovementsReport(db, filters);
             case 'payments':
                 return getPaymentsReport(db, filters);
+            case 'payables':
+                return getPayablesReport(db, filters);
+            case 'overdue':
+                return getOverdueReport(db, filters);
             default:
                 throw new Error(`Type de rapport inconnu: ${type}`);
         }
@@ -105,7 +109,7 @@ function getReceivablesReport(db, _filters) {
 }
 function getChequesReport(db, filters) {
     const params = [];
-    let where = "WHERE p.method IN ('cheque', 'lcn')";
+    let where = "WHERE p.method IN ('cheque', 'lcn') AND p.status = 'pending'";
     if (filters.start_date) {
         where += ' AND p.due_date >= ?';
         params.push(filters.start_date);
@@ -235,4 +239,50 @@ function getPaymentsReport(db, filters) {
     ${where}
     ORDER BY p.date DESC
   `).all(...params);
+}
+function getOverdueReport(db, _filters) {
+    const today = new Date().toISOString().split('T')[0];
+    return db.prepare(`
+    SELECT
+      d.number,
+      d.date,
+      di.due_date,
+      c.name as client_name,
+      c.phone,
+      d.total_ttc,
+      COALESCE(SUM(pa.amount), 0) as total_paid,
+      d.total_ttc - COALESCE(SUM(pa.amount), 0) as remaining,
+      CAST(julianday(?) - julianday(di.due_date) AS INTEGER) as days_overdue,
+      d.status
+    FROM documents d
+    JOIN doc_invoices di ON di.document_id = d.id
+    LEFT JOIN clients c ON c.id = d.party_id
+    LEFT JOIN payment_allocations pa ON pa.document_id = d.id
+    WHERE d.type = 'invoice'
+      AND d.is_deleted = 0
+      AND d.status NOT IN ('paid', 'cancelled', 'draft')
+      AND di.due_date IS NOT NULL
+      AND di.due_date != ''
+      AND di.due_date < ?
+    GROUP BY d.id
+    HAVING remaining > 0.01
+    ORDER BY days_overdue DESC
+  `).all(today, today);
+}
+function getPayablesReport(db, _filters) {
+    // تقرير الذمم الدائنة — ديون الموردين
+    return db.prepare(`
+    SELECT s.name as supplier_name, s.phone, s.ice,
+      COALESCE(SUM(d.total_ttc), 0) as total_invoiced,
+      COALESCE(SUM(pa.amount), 0)   as total_paid,
+      COALESCE(SUM(d.total_ttc), 0) - COALESCE(SUM(pa.amount), 0) as balance
+    FROM suppliers s
+    LEFT JOIN documents d ON d.party_id = s.id AND d.party_type = 'supplier'
+      AND d.type IN ('purchase_invoice','import_invoice')
+      AND d.is_deleted = 0 AND d.status != 'cancelled'
+    LEFT JOIN payment_allocations pa ON pa.document_id = d.id
+    GROUP BY s.id
+    HAVING balance > 0
+    ORDER BY balance DESC
+  `).all();
 }

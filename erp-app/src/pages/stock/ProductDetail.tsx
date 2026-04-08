@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { api } from '../../lib/api'
 import Modal from '../../components/ui/Modal'
+import { toast } from '../../components/ui/Toast'
 import type { Product, StockMovement } from '../../types'
 
 interface Props { id: number; onClose?: () => void; onStockChanged?: () => void }
@@ -40,7 +41,7 @@ export default function ProductDetail({ id, onStockChanged }: Props) {
       await api.applyStockMovement(movId)
       load()
       onStockChanged?.()
-    } catch (e: any) { alert(e.message) }
+    } catch (e: any) { toast(e.message, 'error') }
   }
 
   async function handleManual(e: React.FormEvent) {
@@ -60,7 +61,7 @@ export default function ProductDetail({ id, onStockChanged }: Props) {
       setManualForm({ type: 'in', quantity: 1, unit_cost: 0, notes: '' })
       load()
       onStockChanged?.()
-    } catch (e: any) { alert(e.message) }
+    } catch (e: any) { toast(e.message, 'error') }
     finally { setSaving(false) }
   }
 

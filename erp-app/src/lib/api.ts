@@ -54,6 +54,7 @@ export const api = {
   // Stock
   getStockMovements:    (f?: unknown) => call(() => window.api.getStockMovements(f),    () => mockApi.getStockMovements()),
   applyStockMovement:   (id: number)  => call(() => window.api.applyStockMovement(id),  () => mockApi.applyStockMovement()),
+  deleteStockMovement:  (id: number)  => call(() => window.api.deleteStockMovement(id), () => Promise.resolve({ success: true })),
   createManualMovement: (d: unknown)  => call(() => window.api.createManualMovement(d), () => mockApi.createManualMovement()),
   getProductStats:      (id: number)  => call(() => window.api.getProductStats(id),      () => Promise.resolve({ success: true, data: null })),
 
@@ -66,6 +67,9 @@ export const api = {
   cancelDocument:  (id: number)  => call(() => window.api.cancelDocument(id), () => mockApi.cancelDocument()),
   convertDocument: (d: unknown)  => call(() => window.api.convertDocument(d), () => mockApi.convertDocument()),
   linkDocuments:   (d: unknown)  => call(() => window.api.linkDocuments(d),   () => Promise.resolve({ success: true, data: null })),
+  getPOReceiptStatus:  (id: number)  => call(() => window.api.getPOReceiptStatus(id),  () => Promise.resolve({ summary: [], fullyReceived: false, brCount: 0 })),
+  getCancelImpact:     (id: number)  => call(() => window.api.getCancelImpact(id),     () => Promise.resolve({ impacts: [], docType: '', docStatus: '' })),
+  cancelWithOptions:   (d: unknown)  => call(() => window.api.cancelWithOptions(d),    () => Promise.resolve({ success: true })),
 
   // Payments
   getPayments:     (f?: unknown) => call(() => window.api.getPayments(f),    () => mockApi.getPayments()),
@@ -94,9 +98,13 @@ export const api = {
   // Production
   getProductionOrders:  (f?: unknown) => call(() => window.api.getProductionOrders(f),  () => mockApi.getProductionOrders()),
   createProduction:     (d: unknown)  => call(() => window.api.createProduction(d),      () => mockApi.createProduction()),
-  confirmProduction:    (id: number)  => call(() => window.api.confirmProduction(id),    () => mockApi.confirmProduction()),
+  confirmProduction:    (id: number, userId: number) => call(() => window.api.confirmProduction(id, userId), () => mockApi.confirmProduction()),
+  cancelProduction:     (id: number, userId: number) => call(() => window.api.cancelProduction(id, userId),  () => Promise.resolve({ success: true, data: null })),
   getBomTemplates:      (pid: number) => call(() => window.api.getBomTemplates(pid),     () => mockApi.getBomTemplates()),
+  getAllBoms:            ()            => call(() => window.api.getAllBoms(),              () => Promise.resolve({ success: true, data: [] })),
   createBomTemplate:    (d: unknown)  => call(() => window.api.createBomTemplate(d),     () => mockApi.createBomTemplate()),
+  updateBomTemplate:    (d: unknown)  => call(() => window.api.updateBomTemplate(d),     () => Promise.resolve({ success: true, data: null })),
+  deleteBomTemplate:    (id: number)  => call(() => window.api.deleteBomTemplate(id),    () => Promise.resolve({ success: true, data: null })),
   getTransformations:   (f?: unknown) => call(() => window.api.getTransformations(f),    () => mockApi.getTransformations()),
   createTransformation: (d: unknown)  => call(() => window.api.createTransformation(d),  () => mockApi.createTransformation()),
 

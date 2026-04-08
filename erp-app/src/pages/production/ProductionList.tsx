@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { api } from '../../lib/api'
+import { useAuthStore } from '../../store/auth.store'
 import { toast } from '../../components/ui/Toast'
 import Modal from '../../components/ui/Modal'
 import ConfirmDialog from '../../components/ui/ConfirmDialog'
@@ -12,10 +13,14 @@ const STATUS = {
 }
 
 export default function ProductionList() {
+  const { user } = useAuthStore()
+  const userId = user?.id ?? 1
+
   const [rows, setRows]       = useState<any[]>([])
   const [loading, setLoading] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
   const [confirmId, setConfirmId] = useState<number | null>(null)
+  const [cancelId, setCancelId]   = useState<number | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -28,19 +33,59 @@ export default function ProductionList() {
   async function handleConfirm() {
     if (!confirmId) return
     try {
-      await api.confirmProduction(confirmId)
+      await api.confirmProduction(confirmId, userId)
       toast('Production confirmée — Stock mis à jour')
       load()
     } catch (e: any) { toast(e.message, 'error') }
     finally { setConfirmId(null) }
   }
 
+  async function handleCancel() {
+    if (!cancelId) return
+    try {
+      await api.cancelProduction(cancelId, userId)
+      toast('Ordre annulé')
+      load()
+    } catch (e: any) { toast(e.message, 'error') }
+    finally { setCancelId(null) }
+  }
+
   const fmt = (n: number) => new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n)
+
+  const totalCost   = rows.reduce((s, r) => s + (r.total_cost ?? 0), 0)
+  const confirmed   = rows.filter(r => r.status === 'confirmed').length
+  const drafts      = rows.filter(r => r.status === 'draft').length
 
   return (
     <div className="h-full flex flex-col gap-3">
+
+      {/* ── Bouton ── */}
+      <div className="shrink-0">
+        <button className="btn-primary px-5 py-2.5 text-sm font-semibold shadow-sm"
+          onClick={() => setModalOpen(true)}>
+          + Nouvel Ordre de Production
+        </button>
+      </div>
+
+      {/* ── KPI cards ── */}
+      {rows.length > 0 && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 shrink-0">
+          {[
+            { label: 'Total ordres',   value: String(rows.length),      color: 'text-primary',   bg: 'bg-primary/5',                      icon: '🏭' },
+            { label: 'Confirmés',      value: String(confirmed),        color: 'text-green-600', bg: 'bg-green-50 dark:bg-green-900/10',  icon: '✅' },
+            { label: 'Brouillons',     value: String(drafts),           color: 'text-amber-600', bg: 'bg-amber-50 dark:bg-amber-900/10',  icon: '📝' },
+            { label: 'Coût total',     value: fmt(totalCost) + ' MAD',  color: 'text-gray-700',  bg: 'bg-gray-50 dark:bg-gray-700/30',    icon: '💰' },
+          ].map(c => (
+            <div key={c.label} className={`card p-4 ${c.bg}`}>
+              <div className="text-lg mb-1">{c.icon}</div>
+              <div className="text-xs text-gray-400 mb-1">{c.label}</div>
+              <div className={`text-lg font-bold ${c.color}`}>{c.value}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="flex items-center gap-3">
-        <button className="btn-primary" onClick={() => setModalOpen(true)}>+ Nouvel Ordre</button>
         <button onClick={load} className="btn-secondary btn-sm">↻ Actualiser</button>
         <span className="text-sm text-gray-500 ml-auto">{rows.length} ordre(s)</span>
       </div>
@@ -55,7 +100,7 @@ export default function ProductionList() {
               <th className="px-4 py-3 text-right font-medium text-gray-600">Coût unitaire</th>
               <th className="px-4 py-3 text-right font-medium text-gray-600">Coût total</th>
               <th className="px-4 py-3 text-center font-medium text-gray-600">Statut</th>
-              <th className="px-4 py-3 w-28"></th>
+              <th className="px-4 py-3 w-36"></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
@@ -91,11 +136,18 @@ export default function ProductionList() {
                   </span>
                 </td>
                 <td className="px-4 py-3 text-right">
-                  {r.status === 'draft' && (
-                    <button onClick={() => setConfirmId(r.id)} className="btn-primary btn-sm text-xs">
-                      ✅ Confirmer
-                    </button>
-                  )}
+                  <div className="flex gap-1 justify-end">
+                    {r.status === 'draft' && (
+                      <>
+                        <button onClick={() => setConfirmId(r.id)} className="btn-primary btn-sm text-xs">
+                          ✅ Confirmer
+                        </button>
+                        <button onClick={() => setCancelId(r.id)} className="btn-secondary btn-sm text-xs text-red-500 hover:text-red-700">
+                          ✕
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
@@ -114,6 +166,15 @@ export default function ProductionList() {
         confirmLabel="✅ Confirmer"
         onConfirm={handleConfirm}
         onCancel={() => setConfirmId(null)}
+      />
+
+      <ConfirmDialog
+        open={cancelId !== null}
+        title="Annuler l'ordre"
+        message="Voulez-vous annuler cet ordre de production ? Cette action est irréversible."
+        confirmLabel="Annuler l'ordre"
+        onConfirm={handleCancel}
+        onCancel={() => setCancelId(null)}
       />
     </div>
   )

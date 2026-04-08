@@ -54,11 +54,13 @@ export default function PaymentForm({ partyId, partyType, documentId, maxAmount,
   // إذا لم يكن documentId محدداً، نجلب الفواتير غير المدفوعة
   useEffect(() => {
     if (documentId) return
-    api.getDocuments({ party_id: partyId, limit: 100 } as any).then(async (r: any) => {
+    api.getDocuments({ party_id: partyId, limit: 9999 } as any).then(async (r: any) => {
+      const validTypes = partyType === 'client'
+        ? ['invoice']
+        : ['purchase_invoice', 'import_invoice']
       const invoices = (r.rows ?? []).filter((d: any) =>
-        d.type === 'invoice' && (d.status === 'confirmed' || d.status === 'partial')
+        validTypes.includes(d.type) && (d.status === 'confirmed' || d.status === 'partial')
       )
-      // نجلب المبلغ المدفوع لكل فاتورة
       const amounts: Record<number, number> = {}
       for (const inv of invoices) {
         const paid = await api.getPaymentPaidAmount(inv.id) as any
@@ -67,7 +69,7 @@ export default function PaymentForm({ partyId, partyType, documentId, maxAmount,
       setPaidAmounts(amounts)
       setUnpaidDocs(invoices.filter((d: any) => (d.total_ttc - (amounts[d.id] ?? 0)) > 0.01))
     })
-  }, [partyId, documentId])
+  }, [partyId, partyType, documentId])
 
   // عند اختيار فاتورة، نملأ المبلغ تلقائياً
   function handleSelectDoc(docId: number | null) {
@@ -102,7 +104,7 @@ export default function PaymentForm({ partyId, partyType, documentId, maxAmount,
     <div className="space-y-4">
       {/* اختيار الفاتورة إذا لم تكن محددة مسبقاً */}
       {!documentId && unpaidDocs.length > 0 && (
-        <FormField label="Imputer sur une facture">
+        <FormField label={partyType === 'client' ? "Imputer sur une facture" : "Régler une facture fournisseur"}>
           <div className="space-y-1 max-h-40 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-lg p-2">
             <label className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer text-sm
               ${selectedDocId === null ? 'bg-primary/10 text-primary' : 'hover:bg-gray-50 dark:hover:bg-gray-700'}`}>

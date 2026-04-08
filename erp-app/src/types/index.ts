@@ -99,6 +99,8 @@ export interface StockMovement {
   applied_at?: string
   applied_by?: number
   document_id?: number
+  document_number?: string
+  document_type?: string
   production_id?: number
   transformation_id?: number
   manual_ref?: string

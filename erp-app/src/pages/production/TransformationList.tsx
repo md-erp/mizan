@@ -7,6 +7,7 @@ export default function TransformationList() {
   const [rows, setRows]       = useState<any[]>([])
   const [loading, setLoading] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
+  const [showHelp, setShowHelp] = useState(true)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -16,10 +17,33 @@ export default function TransformationList() {
 
   useEffect(() => { load() }, [load])
 
+  useEffect(() => {
+    const handler = () => load()
+    window.addEventListener('app:refresh', handler)
+    return () => window.removeEventListener('app:refresh', handler)
+  }, [load])
+
   const fmt = (n: number) => new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n)
 
   return (
     <div className="h-full flex flex-col gap-3">
+      {/* Explication */}
+      {showHelp && (
+        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg px-4 py-3 text-sm text-blue-700 dark:text-blue-300 shrink-0 flex items-start gap-3">
+          <div className="flex-1">
+            <span className="font-semibold">⚙️ Transformation</span>
+            {' '}— Convertit une matière première en produit(s) fini(s).
+            Le stock de la matière est débité, le stock des produits obtenus est crédité,
+            et le CMUP est recalculé automatiquement.
+            <span className="ml-2 text-blue-500 text-xs">Ex: 100 kg Aluminium → 50 Profilés</span>
+          </div>
+          <button onClick={() => setShowHelp(false)}
+            className="shrink-0 text-blue-400 hover:text-blue-600 transition-colors text-lg leading-none">
+            ✕
+          </button>
+        </div>
+      )}
+
       <div className="flex items-center gap-3">
         <button className="btn-primary" onClick={() => setModalOpen(true)}>+ Nouvelle Transformation</button>
         <button onClick={load} className="btn-secondary btn-sm">↻ Actualiser</button>

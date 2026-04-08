@@ -101,8 +101,8 @@ function registerAccountingHandlers() {
         COALESCE(SUM(jl.debit), 0) - COALESCE(SUM(jl.credit), 0) as balance
       FROM accounts a
       LEFT JOIN journal_lines jl ON jl.account_id = a.id
-      LEFT JOIN journal_entries je ON je.id = jl.entry_id ${dateFilter ? 'AND 1=1' + dateFilter : ''}
-      WHERE a.is_active = 1
+      LEFT JOIN journal_entries je ON je.id = jl.entry_id
+      WHERE a.is_active = 1 ${dateFilter}
       GROUP BY a.id
       ORDER BY a.code ASC
     `).all(...params);
@@ -143,6 +143,23 @@ function registerAccountingHandlers() {
         const db = (0, connection_1.getDb)();
         db.prepare(`UPDATE accounting_periods SET status = 'closed', closed_at = CURRENT_TIMESTAMP WHERE id = ?`).run(id);
         return { success: true };
+    });
+    (0, index_1.handle)('accounting:getTvaRates', () => {
+        const db = (0, connection_1.getDb)();
+        return db.prepare('SELECT * FROM tva_rates ORDER BY rate ASC').all();
+    });
+    (0, index_1.handle)('accounting:createAccount', (data) => {
+        const db = (0, connection_1.getDb)();
+        if (!data.code?.trim() || !data.name?.trim())
+            throw new Error('Code et intitulé requis');
+        const existing = db.prepare('SELECT id FROM accounts WHERE code = ?').get(data.code.trim());
+        if (existing)
+            throw new Error(`Le compte ${data.code} existe déjà`);
+        const result = db.prepare(`
+      INSERT INTO accounts (code, name, type, class, parent_id, is_active, is_system)
+      VALUES (?, ?, ?, ?, ?, 1, 0)
+    `).run(data.code.trim(), data.name.trim(), data.type, data.class, data.parent_id ?? null);
+        return { id: result.lastInsertRowid };
     });
     (0, index_1.handle)('accounting:createEntry', (data) => {
         const db = (0, connection_1.getDb)();

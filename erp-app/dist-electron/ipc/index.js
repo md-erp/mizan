@@ -21,6 +21,7 @@ const excel_handler_1 = require("./excel.handler");
 const settings_handler_1 = require("./settings.handler");
 const import_handler_1 = require("./import.handler");
 const attachments_handler_1 = require("./attachments.handler");
+const audit_handler_1 = require("./audit.handler");
 function registerAllHandlers() {
     (0, config_handler_1.registerConfigHandlers)();
     (0, auth_handler_1.registerAuthHandlers)();
@@ -40,6 +41,7 @@ function registerAllHandlers() {
     (0, settings_handler_1.registerSettingsHandlers)();
     (0, import_handler_1.registerImportHandlers)();
     (0, attachments_handler_1.registerAttachmentsHandlers)();
+    (0, audit_handler_1.registerAuditHandlers)();
 }
 // Helper: wrapper موحد لكل handler
 function handle(channel, fn) {

@@ -43,11 +43,11 @@ describe('Document Service', () => {
 
   describe('generateDocumentNumber', () => {
     it('genere un numero sequentiel correct', () => {
-      const year = new Date().getFullYear()
+      const year = new Date().getFullYear() % 100
       const n1 = generateDocumentNumber('invoice')
       const n2 = generateDocumentNumber('invoice')
-      expect(n1).toBe(`F-${year}-0001`)
-      expect(n2).toBe(`F-${year}-0002`)
+      expect(n1).toBe(`F-${year}-1`)
+      expect(n2).toBe(`F-${year}-2`)
     })
 
     it('genere des prefixes differents par type', () => {
@@ -62,11 +62,11 @@ describe('Document Service', () => {
     })
 
     it('sequences independantes par type', () => {
-      const year = new Date().getFullYear()
+      const year = new Date().getFullYear() % 100
       generateDocumentNumber('invoice')
       generateDocumentNumber('invoice')
       const quote1 = generateDocumentNumber('quote')
-      expect(quote1).toBe(`D-${year}-0001`)
+      expect(quote1).toBe(`D-${year}-1`)
     })
 
     it('utilise le prefixe DOC pour un type inconnu', () => {
@@ -189,7 +189,7 @@ describe('Document Service', () => {
         created_by: 1,
       })
       expect(result.id).toBeGreaterThan(0)
-      expect(result.number).toMatch(/^F-\d{4}-\d{4}$/)
+      expect(result.number).toMatch(/^F-\d{2}-\d+$/)
     })
   })
 

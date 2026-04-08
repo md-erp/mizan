@@ -29,14 +29,19 @@ export function registerSupplierHandlers(): void {
 
     // إضافة balance لكل مورد
     const rowsWithBalance = (rows as any[]).map(supplier => {
-      const balance = (db.prepare(`
-        SELECT COALESCE(SUM(d.total_ttc), 0) - COALESCE(SUM(pa.amount), 0) as balance
-        FROM documents d
-        LEFT JOIN payment_allocations pa ON pa.document_id = d.id
-        WHERE d.party_id = ? AND d.party_type = 'supplier'
-          AND d.type IN ('purchase_invoice', 'import_invoice') AND d.is_deleted = 0
-          AND d.status IN ('confirmed', 'partial', 'paid')
-      `).get(supplier.id) as any).balance
+      const invRow = (db.prepare(`
+        SELECT COALESCE(SUM(total_ttc), 0) as t FROM documents
+        WHERE party_id=? AND party_type='supplier'
+          AND type IN ('purchase_invoice','import_invoice')
+          AND is_deleted=0 AND status IN ('confirmed','partial','paid','delivered')
+      `).get(supplier.id) as any)
+      const payRow = (db.prepare(`
+        SELECT COALESCE(SUM(amount), 0) as t FROM payments
+        WHERE party_id=? AND party_type='supplier'
+          AND NOT (method IN ('cheque','lcn') AND status='pending')
+          AND status != 'bounced'
+      `).get(supplier.id) as any)
+      const balance = (invRow.t ?? 0) - (payRow.t ?? 0)
       return { ...supplier, balance }
     })
 
@@ -49,14 +54,19 @@ export function registerSupplierHandlers(): void {
     if (!supplier) throw new Error('Fournisseur introuvable')
 
     // Solde: somme des TTC non payées (fac confirmées uniquement)
-    const balance = (db.prepare(`
-      SELECT COALESCE(SUM(d.total_ttc), 0) - COALESCE(SUM(pa.amount), 0) as balance
-      FROM documents d
-      LEFT JOIN payment_allocations pa ON pa.document_id = d.id
-      WHERE d.party_id = ? AND d.party_type = 'supplier'
-        AND d.type IN ('purchase_invoice', 'import_invoice') AND d.is_deleted = 0
-        AND d.status IN ('confirmed', 'partial', 'paid')
-    `).get(id) as any).balance
+    const invRow2 = (db.prepare(`
+      SELECT COALESCE(SUM(total_ttc), 0) as t FROM documents
+      WHERE party_id=? AND party_type='supplier'
+        AND type IN ('purchase_invoice','import_invoice')
+        AND is_deleted=0 AND status IN ('confirmed','partial','paid','delivered')
+    `).get(id) as any)
+    const payRow2 = (db.prepare(`
+      SELECT COALESCE(SUM(amount), 0) as t FROM payments
+      WHERE party_id=? AND party_type='supplier'
+        AND NOT (method IN ('cheque','lcn') AND status='pending')
+        AND status != 'bounced'
+    `).get(id) as any)
+    const balance = (invRow2.t ?? 0) - (payRow2.t ?? 0)
 
     return { ...supplier, balance }
   })

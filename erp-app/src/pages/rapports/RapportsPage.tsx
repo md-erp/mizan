@@ -1,369 +1,486 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { api } from '../../lib/api'
-import { useAppStore } from '../../store/app.store'
-import { toast } from '../../components/ui/Toast'
 
-const REPORTS = [
-  { id: 'overview',       icon: '🏠', label: 'Vue d\'ensemble', desc: '' },
-  { id: 'sales',          icon: '💰', label: 'Ventes',          desc: 'Par période, client, produit' },
-  { id: 'purchases',      icon: '🛒', label: 'Achats',          desc: 'Par période, fournisseur' },
-  { id: 'stock',          icon: '📦', label: 'Stock',           desc: 'Inventaire avec valeurs CMUP' },
-  { id: 'stock_movements',icon: '🔄', label: 'Mouvements',      desc: 'Entrées et sorties' },
-  { id: 'receivables',    icon: '📋', label: 'Créances',        desc: 'Clients débiteurs' },
-  { id: 'cheques',        icon: '🏦', label: 'Chèques & LCN',   desc: 'Échéances à venir' },
-  { id: 'tva_detail',     icon: '🧾', label: 'TVA',             desc: 'Par taux et période' },
-  { id: 'profit_loss',    icon: '📈', label: 'P&L',             desc: 'Produits vs Charges' },
-  { id: 'payments',       icon: '💳', label: 'Paiements',       desc: 'Historique règlements' },
-  { id: 'payables',       icon: '🏭', label: 'Dettes Fourn.',    desc: 'Fournisseurs créditeurs' },
-]
+const fmt = (n: number) =>
+  new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n ?? 0)
 
-interface KpiStats {
-  invoices_total: number; invoices_count: number; unpaid_total: number
-  clients_count: number; products_low_stock: number; cheques_due_soon: number
+function pctChange(curr: number, prev: number) {
+  if (!prev) return null
+  return ((curr - prev) / prev) * 100
 }
 
-const STATUS_BADGE: Record<string, string> = {
-  draft: 'badge-gray', confirmed: 'badge-blue', partial: 'badge-orange',
-  paid: 'badge-green', cancelled: 'badge-red',
+function Badge({ value }: { value: number | null }) {
+  if (value === null) return null
+  const pos = value >= 0
+  return (
+    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${pos ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400'}`}>
+      {pos ? '▲' : '▼'} {Math.abs(value).toFixed(1)}%
+    </span>
+  )
 }
-const STATUS_LABEL: Record<string, string> = {
-  draft: 'Brouillon', confirmed: 'Confirmée', partial: 'Partiel',
-  paid: 'Payée', cancelled: 'Annulée',
-}
+
+type Period = 'month' | 'year' | 'all'
 
 export default function RapportsPage() {
-  const [selected, setSelected] = useState('overview')
-  const [data, setData] = useState<any[]>([])
-  const [loading, setLoading] = useState(false)
-  const [startDate, setStartDate] = useState('')
-  const [endDate, setEndDate] = useState('')
-  const [kpi, setKpi] = useState<KpiStats | null>(null)
-  const [kpiLoading, setKpiLoading] = useState(true)
-  const [recentDocs, setRecentDocs] = useState<any[]>([])
-  const { config } = useAppStore()
-  const [exportSelected, setExportSelected] = useState<Set<string>>(new Set())
-  const [showExportPicker, setShowExportPicker] = useState(false)
-  const [exporting, setExporting] = useState(false)
+  const [period, setPeriod] = useState<Period>('month')
+  const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    async function loadKpi() {
-      setKpiLoading(true)
-      try {
-        const [recentResult, clients, products, notifications] = await Promise.all([
-          api.getDocuments({ type: 'invoice', limit: 5 }) as Promise<any>,
-          api.getClients({ limit: 1 }) as Promise<any>,
-          api.getProducts({ limit: 500 }) as Promise<any>,
-          api.getNotifications() as Promise<any[]>,
-        ])
-        const allDocs = await api.getDocuments({ type: 'invoice', limit: 1000 }) as any
-        const invoices = allDocs.rows ?? []
-        const unpaid = invoices.filter((d: any) => d.status === 'confirmed' || d.status === 'partial')
-        const lowStock = (products.rows ?? []).filter((p: any) => p.stock_quantity <= p.min_stock && p.min_stock > 0)
-        setKpi({
-          invoices_total:     invoices.reduce((s: number, d: any) => s + d.total_ttc, 0),
-          invoices_count:     invoices.length,
-          unpaid_total:       unpaid.reduce((s: number, d: any) => s + d.total_ttc, 0),
-          clients_count:      clients.total ?? 0,
-          products_low_stock: lowStock.length,
-          cheques_due_soon:   ((notifications ?? []).filter((n: any) => n.type === 'cheque')).length,
-        })
-        setRecentDocs(recentResult.rows ?? [])
-      } catch (_) { /* silently ignore */ }
-      finally { setKpiLoading(false) }
+  // KPIs
+  const [kpi, setKpi] = useState({
+    sales: 0, prevSales: 0,
+    purchases: 0, prevPurchases: 0,
+    unpaid: 0, overdueAmount: 0, clientDebt: 0, supplierDebt: 0,
+    invoiceCount: 0, paidCount: 0, unpaidCount: 0, overdueCount: 0,
+  })
+
+  // Stock
+  const [stockStats, setStockStats] = useState({
+    total: 0, value: 0, low: 0, outOf: 0,
+  })
+  const [lowStockItems, setLowStockItems] = useState<any[]>([])
+
+  // TVA
+  const [tva, setTva] = useState({ collected: 0, deductible: 0 })
+
+  // Chèques
+  const [cheques, setCheques] = useState<any[]>([])
+
+  // Factures en retard
+  const [overdueInvoices, setOverdueInvoices] = useState<any[]>([])
+
+  // Top clients
+  const [topClients, setTopClients] = useState<any[]>([])
+
+  // Activité récente
+  const [recentInvoices, setRecentInvoices] = useState<any[]>([])
+  const [recentPayments, setRecentPayments] = useState<any[]>([])
+
+  const getRange = useCallback(() => {
+    const now = new Date()
+    const y = now.getFullYear(), m = now.getMonth()
+    if (period === 'month') {
+      const from = new Date(y, m, 1).toISOString().split('T')[0]
+      const to   = now.toISOString().split('T')[0]
+      const pFrom = new Date(y, m - 1, 1).toISOString().split('T')[0]
+      const pTo   = new Date(y, m, 0).toISOString().split('T')[0]
+      return { from, to, pFrom, pTo }
     }
-    loadKpi()
-  }, [])
+    if (period === 'year') {
+      return { from: `${y}-01-01`, to: now.toISOString().split('T')[0],
+               pFrom: `${y - 1}-01-01`, pTo: `${y - 1}-12-31` }
+    }
+    return { from: '2020-01-01', to: now.toISOString().split('T')[0],
+             pFrom: '2019-01-01', pTo: '2019-12-31' }
+  }, [period])
 
-  async function loadReport(type: string) {
-    if (type === 'overview') { setSelected('overview'); return }
-    setSelected(type)
+  const load = useCallback(async () => {
     setLoading(true)
     try {
-      const result = await api.getReport({ type, filters: { start_date: startDate, end_date: endDate } }) as any
-      if (type === 'profit_loss') {
-        setData([
-          ...(result.revenues ?? []).map((r: any) => ({ ...r, _section: 'Produits' })),
-          ...(result.expenses ?? []).map((r: any) => ({ ...r, _section: 'Charges' })),
-        ])
-      } else {
-        setData(Array.isArray(result) ? result : [])
+      const { from, to, pFrom, pTo } = getRange()
+
+      const results = await Promise.allSettled([
+        api.getReport({ type: 'sales',       filters: { start_date: from, end_date: to } }),
+        api.getReport({ type: 'sales',       filters: { start_date: pFrom, end_date: pTo } }),
+        api.getReport({ type: 'purchases',   filters: { start_date: from, end_date: to } }),
+        api.getReport({ type: 'purchases',   filters: { start_date: pFrom, end_date: pTo } }),
+        api.getReport({ type: 'stock',       filters: {} }),
+        api.getReport({ type: 'receivables', filters: {} }),
+        api.getReport({ type: 'payables',    filters: {} }),
+        api.getReport({ type: 'cheques',     filters: { start_date: from, end_date: to } }),
+        api.getTvaDeclaration({ start_date: from, end_date: to }),
+        api.getDocuments({ type: 'invoice', limit: 5 }),
+        api.getPayments({ limit: 5 }),
+        api.getNotifications(),
+        api.getReport({ type: 'overdue', filters: {} }),
+      ])
+
+      const get = (i: number): any => results[i].status === 'fulfilled' ? results[i].value : null
+
+      const salesR       = get(0)
+      const prevSalesR   = get(1)
+      const purchasesR   = get(2)
+      const prevPurchasesR = get(3)
+      const stockR       = get(4)
+      const receivablesR = get(5)
+      const payablesR    = get(6)
+      const chequesR     = get(7)
+      const tvaR         = get(8)
+      const recentDocsR  = get(9)
+      const paymentsR    = get(10)
+      const notifR       = get(11)
+      const overdueR     = get(12)
+
+      // log errors
+      results.forEach((r, i) => {
+        if (r.status === 'rejected') console.warn(`[Rapports] call ${i} failed:`, r.reason)
+      })
+
+      // normaliser les arrays
+      const toArr = (r: any): any[] => {
+        if (!r) return []
+        if (Array.isArray(r)) return r
+        if (r?.rows) return r.rows
+        return []
       }
-    } catch (e: any) { toast(e.message, 'error') }
+
+      const sales     = toArr(salesR).reduce((s: number, r: any) => s + (r.total_ttc ?? 0), 0)
+      const prevSales = toArr(prevSalesR).reduce((s: number, r: any) => s + (r.total_ttc ?? 0), 0)
+      const purchases     = toArr(purchasesR).reduce((s: number, r: any) => s + (r.total_ttc ?? 0), 0)
+      const prevPurchases = toArr(prevPurchasesR).reduce((s: number, r: any) => s + (r.total_ttc ?? 0), 0)
+
+      const salesArr       = toArr(salesR)
+      const stockArr       = toArr(stockR)
+      const receivablesArr = toArr(receivablesR)
+      const payablesArr    = toArr(payablesR)
+      const chequesArr     = toArr(chequesR)
+      const notifArr       = toArr(notifR)
+
+      const paid    = salesArr.filter((r: any) => r.payment_status === 'paid').length
+      const unpaidC = salesArr.filter((r: any) => r.payment_status !== 'paid').length
+      const overdueArr = toArr(overdueR)
+      const overdue = overdueArr.length
+      const overdueAmt = overdueArr.reduce((s: number, r: any) => s + (r.remaining ?? 0), 0)
+
+      setKpi({
+        sales, prevSales, purchases, prevPurchases,
+        unpaid: salesArr.filter((r: any) => r.payment_status !== 'paid').reduce((s: number, r: any) => s + (r.total_ttc ?? 0), 0),
+        overdueAmount: overdueAmt,
+        clientDebt:   receivablesArr.reduce((s: number, r: any) => s + (r.balance ?? 0), 0),
+        supplierDebt: payablesArr.reduce((s: number, r: any) => s + (r.balance ?? 0), 0),
+        invoiceCount: salesArr.length, paidCount: paid, unpaidCount: unpaidC, overdueCount: overdue,
+      })
+
+      const low = stockArr.filter((r: any) => r.is_low)
+      setStockStats({
+        total: stockArr.length,
+        value: stockArr.reduce((s: number, r: any) => s + (r.stock_value ?? 0), 0),
+        low:   low.length,
+        outOf: stockArr.filter((r: any) => (r.stock_quantity ?? 0) <= 0).length,
+      })
+      setLowStockItems(low.slice(0, 6))
+
+      setTva({
+        collected:  tvaR?.totalCollectee   ?? 0,
+        deductible: tvaR?.totalRecuperable ?? 0,
+      })
+
+      // chèques urgents (7 jours) — seulement les pending
+      const today = new Date(); today.setHours(0,0,0,0)
+      const urgent = chequesArr.filter((c: any) => {
+        if (!c.due_date) return false
+        if (c.status !== 'pending') return false  // exclure cleared/bounced
+        const d = new Date(c.due_date); d.setHours(0,0,0,0)
+        return d <= new Date(today.getTime() + 7 * 86400000)
+      }).sort((a: any, b: any) => a.due_date.localeCompare(b.due_date))
+      setCheques(urgent.slice(0, 6))
+
+      setOverdueInvoices(overdueArr.slice(0, 5))
+
+      const top = [...receivablesArr]
+        .sort((a: any, b: any) => b.total_invoiced - a.total_invoiced)
+        .slice(0, 5)
+      setTopClients(top)
+
+      setRecentInvoices(toArr(recentDocsR).slice(0, 5))
+      setRecentPayments(toArr(paymentsR).slice(0, 5))
+
+    } catch (e) { console.error(e) }
     finally { setLoading(false) }
+  }, [getRange])
+
+  useEffect(() => { load() }, [load])
+
+  const profit       = kpi.sales - kpi.purchases
+  const profitMargin = kpi.sales > 0 ? (profit / kpi.sales) * 100 : 0
+  const salesChange  = pctChange(kpi.sales, kpi.prevSales)
+  const buyChange    = pctChange(kpi.purchases, kpi.prevPurchases)
+  const tvaDue       = tva.collected - tva.deductible
+
+  const PERIOD_LABEL: Record<Period, string> = {
+    month: 'Ce mois', year: 'Cette année', all: 'Tout',
   }
 
-  async function handleExportCurrent() {
-    if (selected === 'overview' || data.length === 0) return
-    try {
-      await api.excelExportReport({ type: selected, rows: data, filters: { start_date: startDate, end_date: endDate } })
-      toast('✅ Fichier Excel enregistré')
-    } catch (e: any) { toast(e.message, 'error') }
-  }
-
-  async function handleMultiExport() {
-    if (exportSelected.size === 0) return
-    setExporting(true)
-    setShowExportPicker(false)
-    try {
-      // جمع كل البيانات أولاً
-      const reportsData: Array<{ type: string; label: string; rows: any[] }> = []
-
-      for (const reportId of exportSelected) {
-        const report = REPORTS.find(r => r.id === reportId)
-        if (!report) continue
-        const result = await api.getReport({ type: reportId, filters: { start_date: startDate, end_date: endDate } }) as any
-        let rows: any[] = []
-        if (reportId === 'profit_loss') {
-          rows = [...(result.revenues ?? []), ...(result.expenses ?? [])]
-        } else {
-          rows = Array.isArray(result) ? result : []
-        }
-        reportsData.push({ type: reportId, label: report.label, rows })
-      }
-
-      // Exporter tout dans un seul fichier avec onglets séparés
-      const result = await api.excelExportMultiple({ reports: reportsData }) as any
-      if (result?.canceled) return
-      toast(`✅ ${reportsData.length} rapport(s) exportés dans un seul fichier`)
-      setExportSelected(new Set())
-    } catch (e: any) { toast(e.message, 'error') }
-    finally { setExporting(false) }
-  }
-
-  const fmt = (n: number) => new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n)
-  const currentReport = REPORTS.find(r => r.id === selected)
+  if (loading) return (
+    <div className="h-full flex items-center justify-center">
+      <div className="text-center text-gray-400">
+        <div className="text-3xl mb-2 animate-pulse">📊</div>
+        <div className="text-sm">Chargement des données...</div>
+      </div>
+    </div>
+  )
 
   return (
-    <div className="h-full flex flex-col">
-      {/* Tabs navigation */}
-      <div className="bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4">
-        <div className="flex gap-0.5 py-1.5 overflow-x-auto">
-          {REPORTS.map(r => (
-            <button key={r.id} onClick={() => loadReport(r.id)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium whitespace-nowrap transition-all
-                ${selected === r.id
-                  ? 'bg-white dark:bg-gray-700 text-primary shadow-sm border border-gray-200 dark:border-gray-600'
-                  : 'text-gray-500 hover:text-gray-700 hover:bg-white/60 dark:hover:bg-gray-700/50'}`}>
-              <span>{r.icon}</span>
-              <span>{r.label}</span>
+    <div className="h-full overflow-auto p-5 space-y-6">
+
+      {/* ── Header + period filter ── */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="text-lg font-bold text-gray-800 dark:text-white">Tableau de bord</h1>
+          <p className="text-xs text-gray-400 mt-0.5">{PERIOD_LABEL[period]}</p>
+        </div>
+        <div className="flex gap-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-1">
+          {(['month', 'year', 'all'] as Period[]).map(p => (
+            <button key={p} onClick={() => setPeriod(p)}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all
+                ${period === p ? 'bg-primary text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+              {PERIOD_LABEL[p]}
             </button>
           ))}
         </div>
       </div>
 
-      {/* Toolbar */}
-      <div className="bg-white dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700 px-4 py-2 flex items-center gap-3 shrink-0">
-        <span className="text-sm text-gray-500">Période:</span>
-        <input value={startDate} onChange={e => setStartDate(e.target.value)} className="input w-36" type="date" />
-        <span className="text-gray-400 text-sm">→</span>
-        <input value={endDate} onChange={e => setEndDate(e.target.value)} className="input w-36" type="date" />
-        {selected !== 'overview' && (
-          <button onClick={() => loadReport(selected)} className="btn-primary btn-sm">↻ Actualiser</button>
-        )}
+      {/* ── KPI row ── */}
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+        {[
+          { label: 'Ventes',    value: fmt(kpi.sales) + ' MAD',    sub: `${kpi.invoiceCount} facture(s)`, color: 'text-green-600',  border: 'border-b-green-500',  icon: '📈', change: salesChange },
+          { label: 'Achats',    value: fmt(kpi.purchases) + ' MAD', sub: 'Fournisseurs',                  color: 'text-red-500',    border: 'border-b-red-500',    icon: '📉', change: buyChange },
+          { label: 'Bénéfice', value: fmt(profit) + ' MAD',        sub: `Marge ${profitMargin.toFixed(1)}%`, color: profit >= 0 ? 'text-primary' : 'text-red-500', border: 'border-b-primary', icon: '💰', change: null },
+          { label: 'Impayé',   value: fmt(kpi.unpaid) + ' MAD',    sub: `${kpi.unpaidCount} facture(s)`, color: 'text-orange-600', border: 'border-b-orange-500', icon: '⏳', change: null },
+          { label: 'En retard', value: fmt(kpi.overdueAmount) + ' MAD', sub: `${kpi.overdueCount} facture(s)`, color: 'text-red-600', border: 'border-b-red-500', icon: '🔴', change: null },
+        ].map(c => (
+          <div key={c.label} className={`card p-4 border-b-4 ${c.border}`}>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-lg">{c.icon}</span>
+              <Badge value={c.change} />
+            </div>
+            <div className="text-xs text-gray-400 uppercase tracking-wider mb-1">{c.label}</div>
+            <div className={`text-lg font-bold ${c.color}`}>{c.value}</div>
+            <div className="text-xs text-gray-400 mt-0.5">{c.sub}</div>
+          </div>
+        ))}
+      </div>
 
-        <div className="ml-auto flex items-center gap-2">
-          {/* Export rapport actuel */}
-          {selected !== 'overview' && data.length > 0 && (
-            <button onClick={handleExportCurrent} className="btn-secondary btn-sm">
-              📥 Excel
-            </button>
-          )}
+      {/* ── Row 2: Factures + Stock ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
 
-          {/* Export multiple */}
-          <div className="relative">
-            <button
-              onClick={() => setShowExportPicker(p => !p)}
-              className="btn-secondary btn-sm flex items-center gap-1">
-              📦 Export groupé
-              <span className="text-xs">▾</span>
-            </button>
-
-            {showExportPicker && (
-              <div className="absolute right-0 top-full mt-1 z-30 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl w-64 p-3">
-                <div className="text-xs font-semibold text-gray-500 mb-2">Sélectionnez les rapports à exporter</div>
-                <div className="space-y-1 max-h-64 overflow-y-auto">
-                  {REPORTS.filter(r => r.id !== 'overview').map(r => (
-                    <label key={r.id}
-                      className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer">
-                      <input type="checkbox"
-                        checked={exportSelected.has(r.id)}
-                        onChange={() => {
-                          setExportSelected(prev => {
-                            const next = new Set(prev)
-                            next.has(r.id) ? next.delete(r.id) : next.add(r.id)
-                            return next
-                          })
-                        }}
-                        className="w-4 h-4"
-                      />
-                      <span>{r.icon}</span>
-                      <span className="text-sm">{r.label}</span>
-                    </label>
-                  ))}
+        {/* Factures */}
+        <div className="card p-5">
+          <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-300 mb-4">🧾 État des factures</h3>
+          <div className="space-y-3">
+            {[
+              { label: 'Payées',    value: kpi.paidCount,    total: kpi.invoiceCount, color: 'bg-green-500' },
+              { label: 'Impayées', value: kpi.unpaidCount,  total: kpi.invoiceCount, color: 'bg-orange-400' },
+              { label: 'En retard', value: kpi.overdueCount, total: Math.max(kpi.unpaidCount, kpi.overdueCount), color: 'bg-red-500' },
+            ].map(r => (
+              <div key={r.label} className="flex items-center gap-3">
+                <div className="text-xs text-gray-500 w-20 shrink-0">{r.label}</div>
+                <div className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-full h-2">
+                  <div className={`${r.color} h-2 rounded-full`}
+                    style={{ width: r.total > 0 ? `${Math.min((r.value / r.total) * 100, 100)}%` : '0%' }} />
                 </div>
-                <div className="border-t border-gray-100 dark:border-gray-700 mt-2 pt-2 flex gap-2">
-                  <button onClick={() => setShowExportPicker(false)} className="btn-secondary btn-sm flex-1 justify-center">
-                    Annuler
-                  </button>
-                  <button
-                    onClick={handleMultiExport}
-                    disabled={exportSelected.size === 0 || exporting}
-                    className="btn-primary btn-sm flex-1 justify-center">
-                    {exporting ? '...' : `📥 Exporter (${exportSelected.size})`}
-                  </button>
-                </div>
+                <div className="text-xs font-semibold w-6 text-right text-gray-700 dark:text-gray-200">{r.value}</div>
               </div>
+            ))}
+          </div>
+          <div className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-700 grid grid-cols-2 gap-3">
+            <div className="bg-orange-50 dark:bg-orange-900/10 rounded-lg p-3">
+              <div className="text-xs text-gray-400 mb-1">Créances Clients</div>
+              <div className="font-bold text-orange-600 text-sm">{fmt(kpi.clientDebt)} MAD</div>
+            </div>
+            <div className="bg-red-50 dark:bg-red-900/10 rounded-lg p-3">
+              <div className="text-xs text-gray-400 mb-1">Dettes Fournisseurs</div>
+              <div className="font-bold text-red-500 text-sm">{fmt(kpi.supplierDebt)} MAD</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Stock */}
+        <div className="card p-5">
+          <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-300 mb-4">📦 État du stock</h3>
+          <div className="grid grid-cols-2 gap-3 mb-4">
+            {[
+              { label: 'Produits',     value: String(stockStats.total),       color: 'text-primary',    bg: 'bg-primary/5' },
+              { label: 'Valeur stock', value: fmt(stockStats.value) + ' MAD', color: 'text-green-600',  bg: 'bg-green-50 dark:bg-green-900/10' },
+              { label: 'Stock bas',    value: String(stockStats.low),         color: stockStats.low > 0 ? 'text-amber-600' : 'text-gray-400', bg: 'bg-amber-50 dark:bg-amber-900/10' },
+              { label: 'Rupture',      value: String(stockStats.outOf),       color: stockStats.outOf > 0 ? 'text-red-500' : 'text-gray-400', bg: 'bg-red-50 dark:bg-red-900/10' },
+            ].map(s => (
+              <div key={s.label} className={`rounded-xl p-3 ${s.bg}`}>
+                <div className="text-xs text-gray-400 mb-1">{s.label}</div>
+                <div className={`font-bold text-sm ${s.color}`}>{s.value}</div>
+              </div>
+            ))}
+          </div>
+          {lowStockItems.length > 0 && (
+            <div className="space-y-1.5">
+              <div className="text-xs text-gray-400 font-medium mb-2">Produits critiques</div>
+              {lowStockItems.map((p: any, i) => (
+                <div key={i} className="flex items-center justify-between text-xs">
+                  <span className="truncate text-gray-700 dark:text-gray-200 max-w-[160px]">{p.name}</span>
+                  <span className={`font-semibold ${p.stock_quantity <= 0 ? 'text-red-500' : 'text-amber-600'}`}>
+                    {p.stock_quantity} {p.unit}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Row 3: Chèques + TVA ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+
+        {/* Chèques urgents */}
+        <div className="card p-5">
+          <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-300 mb-4 flex items-center gap-2 flex-wrap">
+            🏦 Chèques & LCN à encaisser
+            {cheques.length > 0 && <span className="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full">{cheques.length}</span>}
+            {cheques.length > 0 && (
+              <span className="ml-auto text-xs font-bold text-primary">
+                {fmt(cheques.reduce((s, c) => s + (c.amount ?? 0), 0))} MAD
+              </span>
             )}
+          </h3>
+          {cheques.length === 0 ? (
+            <div className="text-xs text-gray-400 text-center py-6">Aucun chèque dans les 7 prochains jours</div>
+          ) : (
+            <div className="space-y-2">
+              {cheques.map((c: any, i) => {
+                const days = Math.ceil((new Date(c.due_date).getTime() - Date.now()) / 86400000)
+                return (
+                  <div key={i} className={`flex items-center justify-between text-xs rounded-lg px-3 py-2
+                    ${days < 0 ? 'bg-red-50 dark:bg-red-900/20' : days === 0 ? 'bg-orange-50 dark:bg-orange-900/20' : 'bg-amber-50 dark:bg-amber-900/10'}`}>
+                    <div>
+                      <div className="font-medium text-gray-700 dark:text-gray-200">{c.party_name}</div>
+                      <div className="text-gray-400">{c.method === 'lcn' ? 'LCN' : 'Chèque'} · {c.cheque_number ?? '—'}</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-bold text-gray-800 dark:text-gray-100">{fmt(c.amount)} MAD</div>
+                      <div className={`font-semibold ${days < 0 ? 'text-red-500' : days === 0 ? 'text-orange-500' : 'text-amber-600'}`}>
+                        {days < 0 ? `${Math.abs(days)}j retard` : days === 0 ? "Aujourd'hui" : `${days}j`}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* TVA du mois */}
+        <div className="card p-5">
+          <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-300 mb-4">🧾 TVA — {PERIOD_LABEL[period]}</h3>
+          <div className="space-y-3">
+            <div className="flex justify-between items-center py-2 border-b border-gray-100 dark:border-gray-700">
+              <span className="text-xs text-gray-500">TVA collectée (ventes)</span>
+              <span className="font-semibold text-sm text-gray-800 dark:text-gray-100">{fmt(tva.collected)} MAD</span>
+            </div>
+            <div className="flex justify-between items-center py-2 border-b border-gray-100 dark:border-gray-700">
+              <span className="text-xs text-gray-500">TVA récupérable (achats)</span>
+              <span className="font-semibold text-sm text-green-600">− {fmt(tva.deductible)} MAD</span>
+            </div>
+            <div className={`flex justify-between items-center py-3 rounded-xl px-3 ${tvaDue >= 0 ? 'bg-red-50 dark:bg-red-900/20' : 'bg-green-50 dark:bg-green-900/20'}`}>
+              <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">
+                {tvaDue >= 0 ? 'TVA due' : 'Crédit TVA'}
+              </span>
+              <span className={`text-lg font-bold ${tvaDue >= 0 ? 'text-red-600' : 'text-green-600'}`}>
+                {fmt(Math.abs(tvaDue))} MAD
+              </span>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Contenu */}
-      <div className="flex-1 overflow-auto">
-        {/* Vue d'ensemble — Dashboard */}
-        {selected === 'overview' && (
-          <div className="p-6 space-y-6">
-            {/* Greeting */}
-            <div>
-              <h1 className="text-xl font-bold text-gray-800 dark:text-white">
-                {new Date().getHours() < 12 ? 'Bonjour' : new Date().getHours() < 18 ? 'Bon après-midi' : 'Bonsoir'}, {config?.company_name ?? 'Bienvenue'} 👋
-              </h1>
-              <p className="text-gray-500 text-sm mt-1">
-                {new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
-              </p>
-            </div>
+      {/* ── Row 4: Top clients + Factures en retard ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
 
-            {/* KPI Cards */}
-            {kpiLoading ? (
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                {[...Array(4)].map((_, i) => (
-                  <div key={i} className="card p-5 animate-pulse">
-                    <div className="h-3 bg-gray-200 rounded w-2/3 mb-3"></div>
-                    <div className="h-6 bg-gray-200 rounded w-1/2"></div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                {[
-                  { label: 'Total Facturé', value: fmt(kpi?.invoices_total ?? 0) + ' MAD', sub: `${kpi?.invoices_count ?? 0} facture(s)`, icon: '💰', color: 'text-primary', bg: 'bg-primary/5', alert: false },
-                  { label: 'Impayé', value: fmt(kpi?.unpaid_total ?? 0) + ' MAD', sub: 'À encaisser', icon: '⏳', color: 'text-orange-500', bg: 'bg-orange-50 dark:bg-orange-900/10', alert: (kpi?.unpaid_total ?? 0) > 0 },
-                  { label: 'Clients', value: String(kpi?.clients_count ?? 0), sub: 'Clients actifs', icon: '👥', color: 'text-blue-600', bg: 'bg-blue-50 dark:bg-blue-900/10', alert: false },
-                  { label: 'Alertes', value: String((kpi?.products_low_stock ?? 0) + (kpi?.cheques_due_soon ?? 0)), sub: `${kpi?.products_low_stock ?? 0} stock · ${kpi?.cheques_due_soon ?? 0} chèques`, icon: '🔔', color: 'text-red-500', bg: 'bg-red-50 dark:bg-red-900/10', alert: ((kpi?.products_low_stock ?? 0) + (kpi?.cheques_due_soon ?? 0)) > 0 },
-                ].map(card => (
-                  <div key={card.label} className={`card p-5 ${card.bg} ${card.alert ? 'border-orange-200 dark:border-orange-800' : ''}`}>
-                    <div className="flex items-center justify-between mb-3">
-                      <span className="text-sm text-gray-500">{card.label}</span>
-                      <span className="text-2xl">{card.icon}</span>
+        {/* Top clients */}
+        <div className="card p-5">
+          <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-300 mb-4">🏆 Top clients</h3>
+          {topClients.length === 0 ? (
+            <div className="text-xs text-gray-400 text-center py-6">Aucune donnée</div>
+          ) : (
+            <div className="space-y-2">
+              {topClients.map((c: any, i) => (
+                <div key={i} className="flex items-center gap-3">
+                  <span className="text-xs font-bold text-gray-300 w-4">{i + 1}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium truncate text-gray-700 dark:text-gray-200">{c.client_name}</div>
+                    <div className="w-full bg-gray-100 dark:bg-gray-700 rounded-full h-1.5 mt-1">
+                      <div className="bg-primary h-1.5 rounded-full"
+                        style={{ width: topClients[0]?.total_invoiced > 0 ? `${(c.total_invoiced / topClients[0].total_invoiced) * 100}%` : '0%' }} />
                     </div>
-                    <div className={`text-xl font-bold ${card.color}`}>{card.value}</div>
-                    <div className="text-xs text-gray-400 mt-1">{card.sub}</div>
                   </div>
-                ))}
-              </div>
-            )}
-
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Dernières factures */}
-              <div className="card">
-                <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-gray-700">
-                  <h3 className="font-semibold text-gray-700 dark:text-gray-300">Dernières factures</h3>
-                  <span className="text-xs text-gray-400">5 dernières</span>
+                  <span className="text-xs font-semibold text-primary shrink-0">{fmt(c.total_invoiced)} MAD</span>
                 </div>
-                <div className="divide-y divide-gray-100 dark:divide-gray-700">
-                  {recentDocs.length === 0 && (
-                    <div className="text-center py-8 text-gray-400 text-sm">Aucune facture</div>
-                  )}
-                  {recentDocs.map((doc: any) => (
-                    <div key={doc.id} className="flex items-center justify-between px-5 py-3 hover:bg-gray-50 dark:hover:bg-gray-700/30">
-                      <div>
-                        <div className="font-mono text-xs font-bold text-primary">{doc.number}</div>
-                        <div className="text-sm text-gray-600">{doc.party_name ?? '—'}</div>
-                        <div className="text-xs text-gray-400">{new Date(doc.date).toLocaleDateString('fr-FR')}</div>
-                      </div>
-                      <div className="text-right">
-                        <div className="font-semibold text-sm">{fmt(doc.total_ttc)} MAD</div>
-                        <span className={`text-xs ${STATUS_BADGE[doc.status] ?? 'badge-gray'}`}>
-                          {STATUS_LABEL[doc.status] ?? doc.status}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Actions rapides */}
-              <div className="card">
-                <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700">
-                  <h3 className="font-semibold text-gray-700 dark:text-gray-300">Actions rapides</h3>
-                </div>
-                <div className="p-4 grid grid-cols-2 gap-3">
-                  {[
-                    { icon: '📄', label: 'Nouvelle Facture' },
-                    { icon: '👤', label: 'Nouveau Client' },
-                    { icon: '📦', label: 'Nouveau Produit' },
-                    { icon: '🛒', label: 'Bon de Commande' },
-                    { icon: '📊', label: 'Balance Comptable' },
-                    { icon: '💾', label: 'Sauvegarder' },
-                  ].map(item => (
-                    <button key={item.label}
-                      className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-primary hover:bg-primary/5 transition-all text-left group">
-                      <span className="text-xl">{item.icon}</span>
-                      <span className="text-sm font-medium text-gray-600 dark:text-gray-300 group-hover:text-primary">
-                        {item.label}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Rapport en chargement */}
-        {selected !== 'overview' && loading && (
-          <div className="flex items-center justify-center h-64 text-gray-400">Chargement...</div>
-        )}
-
-        {/* Rapport vide */}
-        {selected !== 'overview' && !loading && data.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-64 text-gray-400">
-            <div className="text-4xl mb-3">{currentReport?.icon}</div>
-            <div className="font-medium">{currentReport?.label}</div>
-            <div className="text-sm mt-1">Aucune donnée — ajustez la période et actualisez</div>
-          </div>
-        )}
-
-        {/* Tableau de données */}
-        {selected !== 'overview' && !loading && data.length > 0 && (
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 dark:bg-gray-700/50 sticky top-0">
-              <tr>
-                {Object.keys(data[0]).filter(k => !k.startsWith('_')).map(k => (
-                  <th key={k} className="px-4 py-3 text-left font-medium text-gray-600 capitalize whitespace-nowrap">
-                    {k.replace(/_/g, ' ')}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-              {data.map((row, i) => (
-                <tr key={i} className="hover:bg-gray-50 dark:hover:bg-gray-700/30">
-                  {Object.entries(row).filter(([k]) => !k.startsWith('_')).map(([, val]: [string, any], j) => (
-                    <td key={j} className="px-4 py-2 whitespace-nowrap">
-                      {typeof val === 'number'
-                        ? <span className="font-medium">{fmt(val)}</span>
-                        : typeof val === 'string' && val.match(/^\d{4}-\d{2}-\d{2}/)
-                          ? new Date(val).toLocaleDateString('fr-FR')
-                          : String(val ?? '—')}
-                    </td>
-                  ))}
-                </tr>
               ))}
-            </tbody>
-          </table>
-        )}
+            </div>
+          )}
+        </div>
+
+        {/* Factures en retard */}
+        <div className="card p-5">
+          <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-300 mb-4">
+            ⚠️ Factures en retard
+            {overdueInvoices.length > 0 && <span className="ml-2 text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full">{overdueInvoices.length}</span>}
+          </h3>
+          {overdueInvoices.length === 0 ? (
+            <div className="text-xs text-green-600 text-center py-6">✓ Aucune facture en retard</div>
+          ) : (
+            <div className="space-y-2">
+              {overdueInvoices.map((n: any, i) => (
+                <div key={i} className="flex items-center justify-between text-xs bg-red-50 dark:bg-red-900/20 rounded-lg px-3 py-2">
+                  <div>
+                    <div className="font-mono font-bold text-primary">{n.number}</div>
+                    <div className="text-gray-600 dark:text-gray-300">{n.client_name ?? '—'}</div>
+                  </div>
+                  <div className="text-right shrink-0 ml-2">
+                    <div className="text-red-600 font-bold">{new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n.remaining ?? 0)} MAD</div>
+                    <div className="text-red-500">{n.days_overdue}j retard</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
+
+      {/* ── Row 5: Activité récente ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+
+        {/* Dernières factures */}
+        <div className="card p-5">
+          <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-300 mb-4">📄 Dernières factures</h3>
+          {recentInvoices.length === 0 ? (
+            <div className="text-xs text-gray-400 text-center py-6">Aucune facture</div>
+          ) : (
+            <div className="divide-y divide-gray-100 dark:divide-gray-700">
+              {recentInvoices.map((doc: any) => (
+                <div key={doc.id} className="flex items-center justify-between py-2.5">
+                  <div>
+                    <div className="font-mono text-xs font-bold text-primary">{doc.number}</div>
+                    <div className="text-xs text-gray-500">{doc.party_name ?? '—'}</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-xs font-semibold text-gray-700 dark:text-gray-200">{fmt(doc.total_ttc)} MAD</div>
+                    <div className="text-xs text-gray-400">{new Date(doc.date).toLocaleDateString('fr-FR')}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Derniers paiements */}
+        <div className="card p-5">
+          <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-300 mb-4">💳 Derniers paiements</h3>
+          {recentPayments.length === 0 ? (
+            <div className="text-xs text-gray-400 text-center py-6">Aucun paiement</div>
+          ) : (
+            <div className="divide-y divide-gray-100 dark:divide-gray-700">
+              {recentPayments.map((p: any) => (
+                <div key={p.id} className="flex items-center justify-between py-2.5">
+                  <div>
+                    <div className="text-xs font-medium text-gray-700 dark:text-gray-200">{p.party_name ?? '—'}</div>
+                    <div className="text-xs text-gray-400 capitalize">{p.method} · {new Date(p.date).toLocaleDateString('fr-FR')}</div>
+                  </div>
+                  <div className="text-xs font-bold text-green-600">{fmt(p.amount)} MAD</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
     </div>
   )
 }

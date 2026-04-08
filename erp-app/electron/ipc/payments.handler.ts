@@ -41,27 +41,29 @@ export function registerPaymentHandlers(): void {
       )
 
       const paymentId = result.lastInsertRowid as number
+      const isCheque = data.method === 'cheque' || data.method === 'lcn'
+      const isPending = (data.status ?? 'pending') === 'pending'
 
-      // تخصيص الدفعة على الفاتورة
-      if (data.document_id) {
+      // الشيك/LCN بحالة pending لا يُحسب على الفاتورة حتى يُصرف
+      if (data.document_id && !(isCheque && isPending)) {
         db.prepare('INSERT INTO payment_allocations (payment_id, document_id, amount) VALUES (?, ?, ?)').run(
           paymentId, data.document_id, data.amount
         )
-
-        // تحديث حالة الفاتورة
         updateInvoicePaymentStatus(db, data.document_id)
       }
 
-      // قيد محاسبي تلقائي
-      createPaymentEntry(db, {
-        id: paymentId,
-        party_id: data.party_id,
-        party_type: data.party_type,
-        amount: data.amount,
-        method: data.method,
-        date: data.date,
-        reference: `PAY-${paymentId}`,
-      }, data.created_by ?? 1)
+      // قيد محاسبي تلقائي فقط للمدفوعات الفعلية (ليس الشيكات المعلقة)
+      if (!(isCheque && isPending)) {
+        createPaymentEntry(db, {
+          id: paymentId,
+          party_id: data.party_id,
+          party_type: data.party_type,
+          amount: data.amount,
+          method: data.method,
+          date: data.date,
+          reference: `PAY-${paymentId}`,
+        }, data.created_by ?? 1)
+      }
 
       logAudit(db, {
         user_id: data.created_by ?? 1,
@@ -79,8 +81,47 @@ export function registerPaymentHandlers(): void {
 
   handle('payments:update', (data) => {
     const db = getDb()
-    db.prepare(`UPDATE payments SET status=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`).run(data.status, data.id)
-    return { success: true }
+
+    const tx = db.transaction(() => {
+      const payment = db.prepare('SELECT * FROM payments WHERE id = ?').get(data.id) as any
+      if (!payment) throw new Error('Paiement introuvable')
+
+      db.prepare(`UPDATE payments SET status=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`).run(data.status, data.id)
+
+      const isCheque = payment.method === 'cheque' || payment.method === 'lcn'
+
+      // عند تحويل شيك من pending إلى cleared → تطبيق على الفاتورة + قيد محاسبي
+      if (isCheque && payment.status === 'pending' && data.status === 'cleared') {
+        if (payment.document_id) {
+          const existing = db.prepare('SELECT id FROM payment_allocations WHERE payment_id = ?').get(data.id)
+          if (!existing) {
+            db.prepare('INSERT INTO payment_allocations (payment_id, document_id, amount) VALUES (?, ?, ?)').run(
+              data.id, payment.document_id, payment.amount
+            )
+            updateInvoicePaymentStatus(db, payment.document_id)
+          }
+        }
+        createPaymentEntry(db, {
+          id: payment.id,
+          party_id: payment.party_id,
+          party_type: payment.party_type,
+          amount: payment.amount,
+          method: payment.method,
+          date: new Date().toISOString().split('T')[0],
+          reference: `PAY-${payment.id}`,
+        }, 1)
+      }
+
+      // عند إلغاء شيك cleared → إلغاء التخصيص
+      if (isCheque && payment.status === 'cleared' && data.status === 'bounced') {
+        db.prepare('DELETE FROM payment_allocations WHERE payment_id = ?').run(data.id)
+        if (payment.document_id) updateInvoicePaymentStatus(db, payment.document_id)
+      }
+
+      return { success: true }
+    })
+
+    return tx()
   })
 
   handle('payments:getPaidAmount', (documentId: number) => {
@@ -93,28 +134,31 @@ export function registerPaymentHandlers(): void {
 }
 
 function updateInvoicePaymentStatus(db: any, documentId: number): void {
-  const doc = db.prepare('SELECT total_ttc, type FROM documents WHERE id = ?').get(documentId) as any
-  if (!doc) return
+  const doc = db.prepare('SELECT total_ttc, type, status FROM documents WHERE id = ?').get(documentId) as any
+  if (!doc || ['cancelled', 'delivered'].includes(doc.status)) return
 
   const paid = (db.prepare('SELECT COALESCE(SUM(amount), 0) as total FROM payment_allocations WHERE document_id = ?').get(documentId) as any).total
 
-  let status = 'unpaid'
-  if (paid >= doc.total_ttc - 0.01) status = 'paid'  // tolerance 1 centime
-  else if (paid > 0) status = 'partial'
+  let payStatus = 'unpaid'
+  if (paid >= doc.total_ttc - 0.01) payStatus = 'paid'
+  else if (paid > 0) payStatus = 'partial'
 
   // تحديث الجدول الفرعي المناسب
   if (doc.type === 'invoice') {
-    db.prepare('UPDATE doc_invoices SET payment_status = ? WHERE document_id = ?').run(status, documentId)
+    db.prepare('UPDATE doc_invoices SET payment_status = ? WHERE document_id = ?').run(payStatus, documentId)
   } else if (doc.type === 'purchase_invoice') {
-    db.prepare('UPDATE doc_purchase_invoices SET payment_status = ? WHERE document_id = ?').run(status, documentId)
+    db.prepare('UPDATE doc_purchase_invoices SET payment_status = ? WHERE document_id = ?').run(payStatus, documentId)
   } else if (doc.type === 'import_invoice') {
-    db.prepare('UPDATE doc_import_invoices SET payment_status = ? WHERE document_id = ?').run(status, documentId)
+    db.prepare('UPDATE doc_import_invoices SET payment_status = ? WHERE document_id = ?').run(payStatus, documentId)
   }
 
   // تحديث حالة المستند الرئيسي
-  if (status === 'paid') {
+  if (payStatus === 'paid') {
     db.prepare(`UPDATE documents SET status = 'paid', updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(documentId)
-  } else if (status === 'partial') {
+  } else if (payStatus === 'partial') {
     db.prepare(`UPDATE documents SET status = 'partial', updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(documentId)
+  } else {
+    // إعادة إلى confirmed عند إلغاء الدفعة (bounce شيك مثلاً)
+    db.prepare(`UPDATE documents SET status = 'confirmed', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status IN ('paid', 'partial')`).run(documentId)
   }
 }

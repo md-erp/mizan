@@ -4,7 +4,7 @@ import MovementsList from './MovementsList'
 import TransformationList from '../production/TransformationList'
 
 const TABS = [
-  { id: 'all',       label: 'Tous les Produits' },
+  { id: 'all',       label: 'Produits' },
   { id: 'movements', label: '🔄 Mouvements' },
   { id: 'transform', label: '⚙️ Transformation' },
 ] as const

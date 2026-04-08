@@ -5,6 +5,7 @@ export interface PdfInvoiceData {
   lines: any[]
   company: any
   payments: any[]
+  settings: Record<string, string>
 }
 
 export function getInvoiceDataForPdf(documentId: number): PdfInvoiceData {
@@ -46,12 +47,23 @@ export function getInvoiceDataForPdf(documentId: number): PdfInvoiceData {
     ORDER BY p.date ASC
   `).all(documentId) as any[]
 
-  return { document, lines, company, payments }
+  // Charger les paramètres du modèle
+  const settingsRows = db.prepare('SELECT key, value FROM app_settings').all() as any[]
+  const settings: Record<string, string> = Object.fromEntries(settingsRows.map(r => [r.key, r.value]))
+
+  return { document, lines, company, payments, settings }
 }
 
 // Template HTML pour la facture
 export function generateInvoiceHtml(data: PdfInvoiceData): string {
-  const { document: doc, lines, company, payments } = data
+  const { document: doc, lines, company, payments, settings } = data
+
+  const primaryColor = settings.primary_color ?? '#1E3A5F'
+  const accentColor  = settings.accent_color  ?? '#F0A500'
+  const footer       = settings.invoice_footer ?? 'Merci pour votre confiance'
+  const payTerms     = settings.payment_terms  ?? ''
+  const showBank     = settings.show_bank_details === '1'
+  const showStamp    = settings.show_stamp_area !== '0'
 
   const fmt = (n: number) => new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n ?? 0)
   const fmtDate = (d: string) => d ? new Date(d).toLocaleDateString('fr-FR') : '—'
@@ -112,25 +124,25 @@ export function generateInvoiceHtml(data: PdfInvoiceData): string {
   body { font-family: 'Segoe UI', Arial, sans-serif; font-size:13px; color:#333; background:#fff; }
   .page { padding:40px; max-width:800px; margin:0 auto; position:relative; }
   .header { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:40px; }
-  .company-name { font-size:22px; font-weight:700; color:#1E3A5F; }
+  .company-name { font-size:22px; font-weight:700; color:${primaryColor}; }
   .company-info { font-size:11px; color:#666; margin-top:4px; line-height:1.6; }
-  .doc-title { font-size:28px; font-weight:700; color:#1E3A5F; text-align:right; }
-  .doc-number { font-size:14px; color:#F0A500; font-weight:600; text-align:right; margin-top:4px; }
+  .doc-title { font-size:28px; font-weight:700; color:${primaryColor}; text-align:right; }
+  .doc-number { font-size:14px; color:${accentColor}; font-weight:600; text-align:right; margin-top:4px; }
   .doc-date { font-size:12px; color:#888; text-align:right; margin-top:2px; }
   .parties { display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-bottom:30px; }
   .party-box { background:#f8fafc; border-radius:8px; padding:16px; }
   .party-label { font-size:10px; text-transform:uppercase; color:#888; font-weight:600; margin-bottom:6px; letter-spacing:0.5px; }
-  .party-name { font-size:15px; font-weight:600; color:#1E3A5F; }
+  .party-name { font-size:15px; font-weight:600; color:${primaryColor}; }
   .party-info { font-size:11px; color:#666; margin-top:4px; line-height:1.6; }
   table { width:100%; border-collapse:collapse; margin-bottom:20px; }
-  thead { background:#1E3A5F; color:white; }
+  thead { background:${primaryColor}; color:white; }
   thead th { padding:10px 12px; text-align:left; font-size:12px; font-weight:500; }
   thead th:last-child, thead th:nth-child(2), thead th:nth-child(3), thead th:nth-child(4), thead th:nth-child(5) { text-align:center; }
   thead th:last-child { text-align:right; }
   .totals { display:flex; justify-content:flex-end; margin-bottom:30px; }
   .totals-box { width:260px; }
   .totals-row { display:flex; justify-content:space-between; padding:6px 0; font-size:13px; border-bottom:1px solid #f0f0f0; }
-  .totals-row.total { font-size:16px; font-weight:700; color:#1E3A5F; border-bottom:none; padding-top:10px; }
+  .totals-row.total { font-size:16px; font-weight:700; color:${primaryColor}; border-bottom:none; padding-top:10px; }
   .totals-row.remaining { color:#EF4444; font-weight:600; }
   .footer { margin-top:40px; padding-top:20px; border-top:2px solid #1E3A5F; display:flex; justify-content:space-between; font-size:11px; color:#888; }
   .stamp-area { width:150px; height:80px; border:1px dashed #ccc; border-radius:4px; display:flex; align-items:center; justify-content:center; color:#ccc; font-size:11px; }
@@ -212,10 +224,12 @@ export function generateInvoiceHtml(data: PdfInvoiceData): string {
   <!-- Footer -->
   <div class="footer">
     <div>
-      <div>Merci pour votre confiance</div>
+      <div>${footer}</div>
+      ${payTerms ? `<div style="margin-top:2px;font-size:10px;color:#aaa">${payTerms}</div>` : ''}
       <div style="margin-top:4px">${company?.company_name ?? ''} — ${company?.company_ice ? 'ICE: ' + company.company_ice : ''}</div>
+      ${showBank && settings.bank_name ? `<div style="margin-top:4px;font-size:10px">Banque: ${settings.bank_name} — RIB: ${settings.bank_rib ?? ''}</div>` : ''}
     </div>
-    <div class="stamp-area">Cachet & Signature</div>
+    ${showStamp ? `<div class="stamp-area">Cachet & Signature</div>` : ''}
   </div>
 </div>
 </body>

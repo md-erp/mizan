@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { api } from '../../lib/api'
 import { toast } from '../../components/ui/Toast'
 import Modal from '../../components/ui/Modal'
@@ -23,26 +23,48 @@ const TYPE_FILTER = [
   { value: 'semi_finished', label: 'Semi-finis' },
 ]
 
+const STOCK_FILTER = [
+  { value: 'all',      label: 'Tout le stock' },
+  { value: 'critical', label: '🔴 Critique' },
+  { value: 'low',      label: '🟡 Bas' },
+  { value: 'ok',       label: '🟢 OK' },
+]
+
 export default function ProductsList() {
-  const [rows, setRows] = useState<Product[]>([])
-  const [search, setSearch] = useState('')
+  const [rows, setRows]           = useState<Product[]>([])
+  const [search, setSearch]       = useState('')
   const [typeFilter, setTypeFilter] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [stockFilter, setStockFilter] = useState('all')
+  const [loading, setLoading]     = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
-  const [editing, setEditing] = useState<Product | null>(null)
+  const [editing, setEditing]     = useState<Product | null>(null)
   const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [page, setPage] = useState(1)
+  const [total, setTotal] = useState(0)
+  const LIMIT = 50
+  const searchRef = useRef<ReturnType<typeof setTimeout>>()
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const result = await api.getProducts({ type: typeFilter || undefined, search }) as any
+      // Si filtre stock actif, on charge tout pour filtrer correctement
+      const useLimit = stockFilter !== 'all' ? 9999 : LIMIT
+      const usePage  = stockFilter !== 'all' ? 1 : page
+      const result = await api.getProducts({ type: typeFilter || undefined, search, page: usePage, limit: useLimit }) as any
       setRows(result.rows ?? [])
+      setTotal(result.total ?? 0)
     } finally {
       setLoading(false)
     }
-  }, [typeFilter, search])
+  }, [typeFilter, search, page, stockFilter])
 
   useEffect(() => { load() }, [load])
+
+  function handleSearch(v: string) {
+    clearTimeout(searchRef.current)
+    searchRef.current = setTimeout(() => setSearch(v), 300)
+  }
+  useEffect(() => { setPage(1) }, [search, typeFilter, stockFilter])
 
   useEffect(() => {
     const handler = () => load()
@@ -52,19 +74,28 @@ export default function ProductsList() {
 
   const fmt = (n: number) => new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n)
 
+  // stock filter
+  const filteredRows = rows.filter(p => {
+    if (stockFilter === 'critical') return p.stock_quantity <= 0
+    if (stockFilter === 'low')      return p.stock_quantity > 0 && p.min_stock > 0 && p.stock_quantity <= p.min_stock
+    if (stockFilter === 'ok')       return p.min_stock === 0 || p.stock_quantity > p.min_stock
+    return true
+  })
+
+  // stats
+  const totalValue    = rows.reduce((s, p) => s + p.stock_quantity * p.cmup_price, 0)
+  const criticalCount = rows.filter(p => p.stock_quantity <= 0).length
+  const lowCount      = rows.filter(p => p.stock_quantity > 0 && p.min_stock > 0 && p.stock_quantity <= p.min_stock).length
+
   return (
     <div className="h-full flex flex-col gap-3">
-      {/* Toolbar */}
-      <div className="flex items-center gap-3 flex-wrap">
+
+      {/* Header: boutons + KPI */}
+      <div className="flex items-center justify-between shrink-0">
         <button className="btn-primary" onClick={() => { setEditing(null); setModalOpen(true) }}>
           + Nouveau Produit
         </button>
-        <input value={search} onChange={e => setSearch(e.target.value)}
-          className="input max-w-xs" placeholder="Rechercher par code ou nom..." />
-        <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} className="input w-44">
-          {TYPE_FILTER.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-        </select>
-        <div className="ml-auto flex gap-2">
+        <div className="flex gap-2">
           <ImportButton type="products" onImported={load} />
           <button onClick={async () => {
             try {
@@ -73,6 +104,33 @@ export default function ProductsList() {
             } catch (e: any) { toast(e.message, 'error') }
           }} className="btn-secondary btn-sm">📤 Exporter</button>
         </div>
+      </div>
+
+      {/* KPI mini-cards */}
+      <div className="grid grid-cols-4 gap-3 shrink-0">
+        {[
+          { label: 'Produits',       value: String(rows.length),       color: 'text-primary',    bg: 'bg-primary/5' },
+          { label: 'Valeur stock',   value: fmt(totalValue) + ' MAD',  color: 'text-green-600',  bg: 'bg-green-50 dark:bg-green-900/10' },
+          { label: 'Stock critique', value: String(criticalCount),     color: 'text-red-600',    bg: criticalCount > 0 ? 'bg-red-50 dark:bg-red-900/10' : 'bg-gray-50 dark:bg-gray-700/30' },
+          { label: 'Stock bas',      value: String(lowCount),          color: 'text-amber-600',  bg: lowCount > 0 ? 'bg-amber-50 dark:bg-amber-900/10' : 'bg-gray-50 dark:bg-gray-700/30' },
+        ].map(c => (
+          <div key={c.label} className={`card p-4 ${c.bg}`}>
+            <div className="text-xs text-gray-500">{c.label}</div>
+            <div className={`text-lg font-bold mt-1 ${c.color}`}>{c.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Toolbar: filtres */}
+      <div className="flex items-center gap-3 flex-wrap shrink-0">
+        <input onChange={e => handleSearch(e.target.value)}
+          className="input max-w-xs" placeholder="Rechercher par code ou nom..." />
+        <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} className="input w-44">
+          {TYPE_FILTER.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+        </select>
+        <select value={stockFilter} onChange={e => setStockFilter(e.target.value)} className="input w-36">
+          {STOCK_FILTER.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+        </select>
       </div>
 
       {/* Table */}
@@ -93,7 +151,7 @@ export default function ProductsList() {
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
             {loading && <SkeletonRows cols={9} />}
-            {!loading && rows.length === 0 && (
+            {!loading && filteredRows.length === 0 && (
               <tr><td colSpan={9} className="text-center py-16">
                 <div className="text-4xl mb-3">📦</div>
                 <div className="text-gray-500 font-medium">Aucun produit</div>
@@ -101,7 +159,7 @@ export default function ProductsList() {
                   className="btn-primary mt-3">+ Créer le premier</button>
               </td></tr>
             )}
-            {rows.map(p => {
+            {filteredRows.map(p => {
               const isLow = p.min_stock > 0 && p.stock_quantity <= p.min_stock
               const typeBadge = TYPE_BADGE[p.type] ?? { label: p.type, cls: 'badge-gray' }
               return (
@@ -136,6 +194,19 @@ export default function ProductsList() {
           </tbody>
         </table>
       </div>
+
+      {total > LIMIT && (
+        <div className="flex items-center justify-between shrink-0 text-xs text-gray-500">
+          <span>{total} produit(s)</span>
+          <div className="flex gap-1">
+            <button disabled={page === 1} onClick={() => setPage(p => p - 1)} className="btn-secondary btn-sm disabled:opacity-40">←</button>
+            <span className="px-3 py-1.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
+              {page} / {Math.ceil(total / LIMIT)}
+            </span>
+            <button disabled={page >= Math.ceil(total / LIMIT)} onClick={() => setPage(p => p + 1)} className="btn-secondary btn-sm disabled:opacity-40">→</button>
+          </div>
+        </div>
+      )}
 
       <Modal open={modalOpen} onClose={() => setModalOpen(false)}
         title={editing ? 'Modifier Produit' : 'Nouveau Produit'}>

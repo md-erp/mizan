@@ -7,6 +7,7 @@ exports.registerAuthHandlers = registerAuthHandlers;
 const crypto_1 = __importDefault(require("crypto"));
 const index_1 = require("./index");
 const connection_1 = require("../database/connection");
+const audit_service_1 = require("../services/audit.service");
 function hashPassword(password) {
     return crypto_1.default.createHash('sha256').update(password).digest('hex');
 }
@@ -22,6 +23,7 @@ function registerAuthHandlers() {
         if (user.password_hash !== hashPassword(password))
             throw new Error('Mot de passe incorrect');
         db.prepare('UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?').run(user.id);
+        (0, audit_service_1.logAudit)(db, { user_id: user.id, action: 'LOGIN', table_name: 'users', record_id: user.id });
         const { password_hash, ...safeUser } = user;
         return safeUser;
     });
@@ -41,6 +43,7 @@ function registerAuthHandlers() {
       INSERT INTO users (name, email, password_hash, role)
       VALUES (?, ?, ?, ?)
     `).run(name.trim(), email.trim().toLowerCase(), hashPassword(password), role ?? 'sales');
+        (0, audit_service_1.logAudit)(db, { user_id: 1, action: 'CREATE', table_name: 'users', record_id: result.lastInsertRowid, new_values: { name, email, role } });
         return { id: result.lastInsertRowid };
     });
     (0, index_1.handle)('users:update', ({ id, name, email, role, is_active, password }) => {
@@ -58,6 +61,7 @@ function registerAuthHandlers() {
     (0, index_1.handle)('users:delete', (id) => {
         const db = (0, connection_1.getDb)();
         db.prepare('UPDATE users SET is_active = 0 WHERE id = ?').run(id);
+        (0, audit_service_1.logAudit)(db, { user_id: 1, action: 'DELETE', table_name: 'users', record_id: id });
         return { success: true };
     });
     (0, index_1.handle)('auth:logout', () => ({ success: true }));

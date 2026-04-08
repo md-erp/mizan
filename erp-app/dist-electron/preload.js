@@ -37,7 +37,7 @@ const api = {
     getStockMovements: (filters) => electron_1.ipcRenderer.invoke('stock:getMovements', filters),
     applyStockMovement: (id) => electron_1.ipcRenderer.invoke('stock:applyMovement', id),
     createManualMovement: (data) => electron_1.ipcRenderer.invoke('stock:createManual', data),
-    getProductStats:      (id)   => electron_1.ipcRenderer.invoke('stock:getProductStats', id),
+    getProductStats: (id) => electron_1.ipcRenderer.invoke('stock:getProductStats', id),
     // --- Documents ---
     getDocuments: (filters) => electron_1.ipcRenderer.invoke('documents:getAll', filters),
     getDocument: (id) => electron_1.ipcRenderer.invoke('documents:getOne', id),
@@ -46,11 +46,15 @@ const api = {
     confirmDocument: (id) => electron_1.ipcRenderer.invoke('documents:confirm', id),
     cancelDocument: (id) => electron_1.ipcRenderer.invoke('documents:cancel', id),
     convertDocument: (data) => electron_1.ipcRenderer.invoke('documents:convert', data),
-    linkDocuments:   (data) => electron_1.ipcRenderer.invoke('documents:link', data),
+    linkDocuments: (data) => electron_1.ipcRenderer.invoke('documents:link', data),
+    getPOReceiptStatus:   (id) => electron_1.ipcRenderer.invoke('documents:getPOReceiptStatus', id),
+    getCancelImpact:      (id) => electron_1.ipcRenderer.invoke('documents:getCancelImpact', id),
+    cancelWithOptions:    (data) => electron_1.ipcRenderer.invoke('documents:cancelWithOptions', data),
     // --- Payments ---
     getPayments: (filters) => electron_1.ipcRenderer.invoke('payments:getAll', filters),
     createPayment: (data) => electron_1.ipcRenderer.invoke('payments:create', data),
     updatePayment: (data) => electron_1.ipcRenderer.invoke('payments:update', data),
+    getPaymentPaidAmount: (docId) => electron_1.ipcRenderer.invoke('payments:getPaidAmount', docId),
     // --- Purchases (يستخدم نفس documents handler) ---
     getPurchaseOrders: (filters) => electron_1.ipcRenderer.invoke('documents:getAll', { ...filters, type: 'purchase_order' }),
     createPurchaseOrder: (data) => electron_1.ipcRenderer.invoke('documents:create', data),
@@ -108,5 +112,11 @@ const api = {
     attachmentsList: (d) => electron_1.ipcRenderer.invoke('attachments:list', d),
     attachmentsOpen: (p) => electron_1.ipcRenderer.invoke('attachments:open', p),
     attachmentsDelete: (p) => electron_1.ipcRenderer.invoke('attachments:delete', p),
+    // --- Audit ---
+    auditGetLog: (f) => electron_1.ipcRenderer.invoke('audit:getLog', f),
+    auditGetUsers: () => electron_1.ipcRenderer.invoke('audit:getUsers'),
+    // --- Accounting extra ---
+    createAccount: (d) => electron_1.ipcRenderer.invoke('accounting:createAccount', d),
+    getTvaRates: () => electron_1.ipcRenderer.invoke('accounting:getTvaRates'),
 };
 electron_1.contextBridge.exposeInMainWorld('api', api);
