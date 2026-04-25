@@ -64,6 +64,7 @@ jobs:
         with:
           keep_latest: 1
           delete_tags: true
+          repo: md-erp/md-PRO
         env:
           GITHUB_TOKEN: ${{ secrets.TOKEN }}
 
@@ -71,10 +72,9 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          repository: md-erp/md-PRO
           files: erp-app/release/*.exe
-          name: md-PRO ${{ github.ref_name }}
+          name: Mizan ERP ${{ github.ref_name }}
           body: |
-            md-PRO ${{ github.ref_name }}
+            Mizan ERP ${{ github.ref_name }}
         env:
           GITHUB_TOKEN: ${{ secrets.TOKEN }}
