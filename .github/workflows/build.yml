@@ -54,19 +54,23 @@ jobs:
       - name: Upload installer as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ERP-Pro-Windows-Setup
+          name: Mizan-ERP-Windows-Setup
           path: erp-app/release/*.exe
           retention-days: 30
 
       - name: Delete old releases
         if: startsWith(github.ref, 'refs/tags/')
-        uses: dev-drprasad/delete-older-releases@v0.3.4
-        with:
-          keep_latest: 1
-          delete_tags: true
-          repo: md-erp/mizan
+        shell: bash
+        run: |
+          gh release list --repo md-erg/mizan --limit 100 --json tagName \
+            | jq -r '.[].tagName' \
+            | grep -v "${{ github.ref_name }}" \
+            | while read tag; do
+                echo "Deleting release: $tag"
+                gh release delete "$tag" --repo md-erg/mizan --yes --cleanup-tag || true
+              done
         env:
-          GITHUB_TOKEN: ${{ secrets.TOKEN }}
+          GH_TOKEN: ${{ secrets.TOKEN }}
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
