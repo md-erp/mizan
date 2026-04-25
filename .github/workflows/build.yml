@@ -64,7 +64,7 @@ jobs:
         with:
           keep_latest: 1
           delete_tags: true
-          repo: md-erp/md-PRO
+          repo: md-erp/mizan
         env:
           GITHUB_TOKEN: ${{ secrets.TOKEN }}
 
