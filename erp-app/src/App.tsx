@@ -66,7 +66,7 @@ export default function App() {
     return (
       <div className="h-screen flex items-center justify-center bg-primary">
         <div className="text-white text-center">
-          <div className="text-3xl font-bold mb-2">ERP Pro</div>
+          <div className="text-3xl font-bold mb-2">Mizan ERP</div>
           <div className="text-primary-100 text-sm">Chargement...</div>
         </div>
       </div>

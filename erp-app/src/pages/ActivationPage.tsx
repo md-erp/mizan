@@ -39,7 +39,7 @@ export default function ActivationPage({ onActivated }: { onActivated: () => voi
     <div className="h-screen flex items-center justify-center bg-primary">
       <div className="card w-full max-w-md p-8">
         <div className="text-center mb-8">
-          <div className="text-2xl font-bold text-primary mb-1">ERP Pro</div>
+          <div className="text-2xl font-bold text-primary mb-1">Mizan ERP</div>
           <div className="text-gray-500 text-sm">Activation du logiciel</div>
         </div>
 

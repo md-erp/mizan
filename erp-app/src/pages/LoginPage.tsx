@@ -31,7 +31,7 @@ export default function LoginPage({ onLogin }: { onLogin: () => void }) {
       {/* Left panel */}
       <div className="hidden lg:flex flex-col justify-between w-1/2 bg-primary p-12">
         <div className="text-white">
-          <div className="text-3xl font-bold">ERP Pro</div>
+          <div className="text-3xl font-bold">Mizan ERP</div>
           <div className="text-primary-100 mt-1 text-sm">Gestion comptable & commerciale</div>
         </div>
         <div className="text-primary-200 text-xs">

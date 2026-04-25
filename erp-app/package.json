@@ -1,8 +1,8 @@
 {
-  "name": "erp-app",
+  "name": "mizan-erp",
   "version": "1.0.8",
-  "description": "ERP Comptabilité & Facturation — Desktop App",
-  "author": "ERP Pro",
+  "description": "Mizan ERP — Comptabilité & Facturation",
+  "author": "Mizan ERP",
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "node dev.js",
@@ -57,8 +57,8 @@
     "wait-on": "^7.2.0"
   },
   "build": {
-    "appId": "ma.erp.app",
-    "productName": "md-PRO",
+    "appId": "ma.mizan.erp",
+    "productName": "Mizan ERP",
     "directories": {
       "output": "release"
     },
