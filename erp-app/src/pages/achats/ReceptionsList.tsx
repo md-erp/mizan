@@ -1,3 +1,4 @@
+import { fmt } from '../../lib/format'
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { api } from '../../lib/api'
 import Modal from '../../components/ui/Modal'
@@ -5,9 +6,10 @@ import Drawer from '../../components/ui/Drawer'
 import ReceptionForm from './ReceptionForm'
 import DocumentDetail from '../../components/DocumentDetail'
 import SkeletonRows from '../../components/ui/SkeletonRows'
+import { docRowBg } from '../../lib/rowBg'
 import type { Document, PaginatedResponse } from '../../types'
 
-const fmt = (n: number) => new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n ?? 0)
+// fmt imported from lib/format
 
 export default function ReceptionsList() {
 
@@ -133,7 +135,7 @@ export default function ReceptionsList() {
                     if ((e.target as HTMLElement).closest('button')) return
                     setSelectedId(doc.id)
                   }}
-                  className={`cursor-pointer transition-colors ${hasPending ? 'bg-amber-50/40 dark:bg-amber-900/10 hover:bg-amber-100/60' : 'hover:bg-gray-50 dark:hover:bg-gray-700/30'}`}>
+                  className={`cursor-pointer transition-colors ${docRowBg(doc.status, { pendingStock: hasPending })}`}>
                   <td className="px-3 py-3 text-center align-middle">
                     <span className="font-mono text-xs font-semibold text-primary">{doc.number}</span>
                     {hasPending && <span className="ml-1.5 text-xs text-amber-600 bg-amber-50 dark:bg-amber-900/30 px-1.5 py-0.5 rounded-full">⚠ Stock</span>}

@@ -1,3 +1,4 @@
+import { fmt } from '../../lib/format'
 import { useState, useEffect } from 'react'
 import { useForm, useFieldArray } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -7,6 +8,7 @@ import { toast } from '../../components/ui/Toast'
 import FormField from '../../components/ui/FormField'
 import { PartySelector } from '../../components/ui/PartySelector'
 import { LinesTable, getDefaultTva, LinesTotals } from '../../components/ui/LinesTable'
+import NumberInput from '../../components/ui/NumberInput'
 import type { Product, Document } from '../../types'
 import DocumentNumberField from '../../components/ui/DocumentNumberField'
 
@@ -22,6 +24,7 @@ const schema = z.object({
   date:              z.string().min(1, 'Date requise'),
   reason:            z.string().min(1, 'Motif requis'),
   source_invoice_id: z.coerce.number().optional(),
+  global_discount: z.coerce.number().min(0).max(100).default(0),
   lines: z.array(z.object({
     product_id:  z.number().optional(),
     description: z.string().optional(),
@@ -44,8 +47,9 @@ export default function AvoirForm({ onSaved, onCancel, sourceInvoice }: Props) {
   const [products, setProducts] = useState<Product[]>([])
   const [invoices, setInvoices] = useState<Document[]>([])
   const [customSeq, setCustomSeq] = useState<number | undefined>(undefined)
+  const [isConfirming, setIsConfirming] = useState(false)
 
-  const fmt = (n: number) => new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n)
+  // fmt imported from lib/format
 
   const { register, control, handleSubmit, watch, setValue,
     formState: { errors, isSubmitting } } = useForm<FormData>({
@@ -56,6 +60,7 @@ export default function AvoirForm({ onSaved, onCancel, sourceInvoice }: Props) {
       date:              new Date().toISOString().split('T')[0],
       reason:            '',
       source_invoice_id: sourceInvoice?.id,
+      global_discount: 0,
       lines: sourceInvoice?.lines?.map((l: any) => ({
         product_id:  l.product_id ?? undefined,
         description: l.description ?? '',
@@ -69,6 +74,7 @@ export default function AvoirForm({ onSaved, onCancel, sourceInvoice }: Props) {
 
   const { fields, append, remove } = useFieldArray({ control, name: 'lines' })
   const lines       = watch('lines')
+  const globalDiscount = watch('global_discount') || 0
   const avoirType   = watch('avoir_type')
   const partyId     = watch('party_id')
   const sourceInvId = watch('source_invoice_id')
@@ -107,7 +113,7 @@ export default function AvoirForm({ onSaved, onCancel, sourceInvoice }: Props) {
         type: 'avoir', date: data.date,
         party_id: data.party_id, party_type: 'client',
         lines: data.lines, notes: data.reason,
-        extra: { avoir_type: data.avoir_type, affects_stock, reason: data.reason },
+        extra: { avoir_type: data.avoir_type, affects_stock, reason: data.reason, global_discount: data.global_discount ?? 0 },
         created_by: 1,
           ...(customSeq !== undefined ? { custom_seq: customSeq } : {}),
         }) as any
@@ -120,12 +126,7 @@ export default function AvoirForm({ onSaved, onCancel, sourceInvoice }: Props) {
         }).catch(() => {})
       }
 
-      await api.confirmDocument(doc.id)
-
-      const msg = affects_stock
-        ? 'Avoir créé — Mouvement stock en attente ⏳'
-        : 'Avoir créé — Écriture comptable générée ✓'
-      toast(msg)
+      toast('Avoir sauvegardé en brouillon')
       onSaved()
     } catch (e: any) { toast(e.message, 'error') }
   }
@@ -217,6 +218,7 @@ export default function AvoirForm({ onSaved, onCancel, sourceInvoice }: Props) {
         lines={lines}
         products={products}
         register={register}
+        control={control}
         setValue={setValue}
         onRemove={remove}
         onAdd={() => append({ quantity: 1, unit_price: 0, discount: 0, tva_rate: getDefaultTva() })}
@@ -226,7 +228,13 @@ export default function AvoirForm({ onSaved, onCancel, sourceInvoice }: Props) {
         onProductsRefresh={setProducts}
       />
 
-      <LinesTotals lines={lines} />
+      <LinesTotals lines={lines} globalDiscount={globalDiscount} />
+
+      <div className="flex items-center gap-3 justify-end -mt-2">
+        <label className="text-sm text-gray-500 shrink-0">Remise globale (%)</label>
+        <NumberInput {...register('global_discount')} 
+          className="input w-28 text-right" decimals={2} min="0" max="100" placeholder="0" />
+      </div>
 
       <div className="flex gap-3 pt-2 border-t border-gray-100 dark:border-gray-700">
         <button type="button" onClick={onCancel} className="btn-secondary">Annuler</button>
@@ -236,7 +244,7 @@ export default function AvoirForm({ onSaved, onCancel, sourceInvoice }: Props) {
           onClick={handleSubmit(onSubmit)}
           className="btn-primary flex-1 justify-center"
         >
-          {isSubmitting ? '...' : '✅ Créer Avoir'}
+          {isSubmitting ? '...' : '💾 Brouillon'}
         </button>
       </div>
     </div>

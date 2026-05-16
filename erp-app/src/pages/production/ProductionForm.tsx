@@ -1,3 +1,4 @@
+import { fmt } from '../../lib/format'
 import { useState, useEffect } from 'react'
 import { api } from '../../lib/api'
 import { useAuthStore } from '../../store/auth.store'
@@ -7,7 +8,7 @@ import type { Product } from '../../types'
 
 interface Props { onSaved: () => void; onCancel: () => void }
 
-const fmt = (n: number) => new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n ?? 0)
+// fmt imported from lib/format
 
 export default function ProductionForm({ onSaved, onCancel }: Props) {
   const { user } = useAuthStore()
@@ -113,7 +114,7 @@ export default function ProductionForm({ onSaved, onCancel }: Props) {
             Quantité à produire <span className="text-red-500">*</span>
           </label>
           <input value={quantity} onChange={e => setQuantity(Number(e.target.value))}
-            className="input" type="number" min="0.01" step="0.01" required />
+            className="input" type="number" step="0.01" min="0.01" required />
         </div>
         <div>
           <label className="block text-sm font-medium mb-1">Date</label>

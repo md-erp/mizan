@@ -1,8 +1,9 @@
 import { handle } from './index'
-import { app, dialog } from 'electron'
+import { app, dialog, BrowserWindow } from 'electron'
 import { join } from 'path'
 import { copyFileSync, readdirSync, statSync, unlinkSync, existsSync, mkdirSync } from 'fs'
 import AdmZip from 'adm-zip'
+import { closeDatabase, initDatabase, getDb } from '../database/connection'
 
 export function registerBackupHandlers(): void {
   handle('backup:create', () => {
@@ -13,7 +14,8 @@ export function registerBackupHandlers(): void {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
     const backupPath = join(backupDir, `erp-backup-${timestamp}.db`)
 
-    copyFileSync(join(userData, 'erp.db'), backupPath)
+    // استخدام VACUUM INTO لدمج WAL وإنشاء نسخة نظيفة ومكتملة
+    getDb().exec(`VACUUM INTO '${backupPath}'`)
 
     // الاحتفاظ بآخر 30 نسخة فقط
     const backups = readdirSync(backupDir)
@@ -51,6 +53,15 @@ export function registerBackupHandlers(): void {
     const safetyPath = join(userData, `erp-before-restore-${Date.now()}.db`)
     copyFileSync(dbPath, safetyPath)
     copyFileSync(backupPath, dbPath)
+
+    // إغلاق الاتصال القديم وإعادة تهيئة قاعدة البيانات المستعادة
+    closeDatabase()
+    initDatabase()
+
+    // إعادة تحميل النافذة
+    const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+    win?.webContents.reload()
+
     return { success: true, safetyBackup: safetyPath }
   })
 
@@ -67,9 +78,14 @@ export function registerBackupHandlers(): void {
 
     const zip = new AdmZip()
 
-    // 1. Base de données
+    // 1. Base de données — استخدام VACUUM INTO لدمج WAL وضمان نسخة مكتملة
     const dbPath = join(userData, 'erp.db')
-    if (existsSync(dbPath)) zip.addLocalFile(dbPath, '', 'erp.db')
+    if (existsSync(dbPath)) {
+      const tmpDb = join(userData, `erp-export-tmp-${Date.now()}.db`)
+      getDb().exec(`VACUUM INTO '${tmpDb}'`)
+      zip.addLocalFile(tmpDb, '', 'erp.db')
+      unlinkSync(tmpDb)
+    }
 
     // 2. Pièces jointes
     const attachDir = join(userData, 'attachments')
@@ -122,6 +138,14 @@ export function registerBackupHandlers(): void {
     if (attachEntries.length > 0) {
       zip.extractEntryTo('attachments/', userData, false, true)
     }
+
+    // إغلاق الاتصال القديم وإعادة تهيئة قاعدة البيانات الجديدة
+    closeDatabase()
+    initDatabase()
+
+    // إعادة تحميل النافذة لتطبيق البيانات الجديدة
+    const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+    win?.webContents.reload()
 
     return { success: true }
   })

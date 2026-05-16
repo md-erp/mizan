@@ -92,9 +92,11 @@ function registerSettingsHandlers() {
     (0, index_1.handle)('sequences:check', ({ doc_type, seq }) => {
         const db = (0, connection_1.getDb)();
         if (doc_type === 'payment') {
-            const padded = `P-${String(seq).padStart(4, '0')}`;
+            const year = new Date().getFullYear() % 100;
+            const padded = `P-${year}-${seq}`;
             const plain = `P-${seq}`;
-            const exists = db.prepare('SELECT id FROM payments WHERE reference = ? OR reference = ?').get(padded, plain);
+            const oldPadded = `P-${String(seq).padStart(4, '0')}`;
+            const exists = db.prepare('SELECT id FROM payments WHERE reference = ? OR reference = ? OR reference = ?').get(padded, plain, oldPadded);
             if (exists) {
                 let suggestion = seq + 1;
                 const allRefs = db.prepare("SELECT reference FROM payments WHERE reference LIKE 'P-%'").all();
@@ -132,9 +134,8 @@ function registerSettingsHandlers() {
     });
     (0, index_1.handle)('sequences:getNext', ({ doc_type }) => {
         const db = (0, connection_1.getDb)();
-        // المدفوعات — بدون سنة، تدعم صيغتين: P-0042 و P-42
+        // المدفوعات — بصيغة P-YY-XXXX
         if (doc_type === 'payment') {
-            // نجلب كل الأرقام ونستخرج أكبر قيمة عددية
             const allRefs = db.prepare("SELECT reference FROM payments WHERE reference LIKE 'P-%'").all();
             let maxSeq = 0;
             for (const row of allRefs) {
@@ -143,7 +144,6 @@ function registerSettingsHandlers() {
                 if (!isNaN(num) && num > maxSeq)
                     maxSeq = num;
             }
-            // نجد أصغر رقم متاح >= maxSeq+1
             let next = maxSeq + 1;
             const usedSet = new Set(allRefs.map((r) => {
                 const parts = r.reference.split('-');
@@ -151,7 +151,8 @@ function registerSettingsHandlers() {
             }).filter((n) => !isNaN(n)));
             while (usedSet.has(next))
                 next++;
-            return { next, year: 0 };
+            const year = new Date().getFullYear() % 100;
+            return { next, year };
         }
         // المستندات — نجد أصغر رقم متاح >= last_seq+1
         const year = new Date().getFullYear() % 100;

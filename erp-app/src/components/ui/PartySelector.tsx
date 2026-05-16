@@ -1,3 +1,4 @@
+import { fmt } from '../../lib/format'
 import { useState, useEffect } from 'react'
 import { Combobox } from './Combobox'
 import Modal from './Modal'
@@ -22,7 +23,7 @@ export function PartySelector({ type, value, onChange, onClear, error, disabled 
   const [newModal, setNewModal] = useState(false)
 
   const label = type === 'client' ? 'Client' : 'Fournisseur'
-  const fmt = (n: number) => new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n)
+  // fmt imported from lib/format
 
   async function load() {
     const fn = type === 'client' ? api.getClients : api.getSuppliers

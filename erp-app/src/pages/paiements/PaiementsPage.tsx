@@ -1,3 +1,4 @@
+import { fmt } from '../../lib/format'
 import { useEffect, useState, useCallback } from 'react'
 import { api } from '../../lib/api'
 import { toast } from '../../components/ui/Toast'
@@ -6,9 +7,7 @@ import Modal from '../../components/ui/Modal'
 import PaymentForm from '../../components/forms/PaymentForm'
 import { PartySelector } from '../../components/ui/PartySelector'
 import DocLink from '../../components/ui/DocLink'
-
-const fmt = (n: number) =>
-  new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n ?? 0)
+import ConfirmDialog from '../../components/ui/ConfirmDialog'
 
 const METHOD_LABELS: Record<string, string> = {
   cash: '💵 Espèces', bank: '🏦 Virement', cheque: '📝 Chèque', lcn: '📋 LCN',
@@ -26,13 +25,15 @@ const STATUS_LABELS: Record<string, string> = {
 }
 
 // ── Payment Detail Drawer ────────────────────────────────────────────────────
-function PaymentDetail({ payment, onClose, onClear, onBounce }: {
+function PaymentDetail({ payment, onClose, onClear, onBounce, onCancel }: {
   payment: any
   onClose: () => void
   onClear: (id: number) => void
   onBounce: (id: number) => void
+  onCancel: (id: number) => void
 }) {
   const isCheque = payment.method === 'cheque' || payment.method === 'lcn'
+  const canCancel = payment.status !== 'cancelled'
   return (
     <div className="p-6 space-y-5">
       <div className="flex items-start justify-between">
@@ -114,6 +115,19 @@ function PaymentDetail({ payment, onClose, onClear, onBounce }: {
           </button>
         </div>
       )}
+
+      {canCancel && (
+        <div className="pt-2 border-t border-gray-100 dark:border-gray-700">
+          <button
+            onClick={() => { onCancel(payment.id); onClose() }}
+            className="w-full btn-secondary text-red-500 border-red-200 hover:bg-red-50 justify-center text-sm">
+            🗑 Annuler ce paiement
+          </button>
+          <p className="text-xs text-gray-400 text-center mt-1.5">
+            Crée une écriture comptable inverse et remet la facture à son état précédent
+          </p>
+        </div>
+      )}
     </div>
   )
 }
@@ -173,6 +187,7 @@ export default function PaiementsPage() {
   const [loading, setLoading]     = useState(false)
   const [partyType, setPartyType] = useState<'all' | 'client' | 'supplier'>('all')
   const [method, setMethod]       = useState('all')
+  const [statusFilter, setStatusFilter] = useState('all')
   const [dateFrom, setDateFrom]   = useState('')
   const [dateTo, setDateTo]       = useState('')
   const [search, setSearch]       = useState('')
@@ -180,6 +195,9 @@ export default function PaiementsPage() {
   const [showNew, setShowNew]     = useState(false)
   const [sortDir, setSortDir]     = useState<'asc' | 'desc'>('desc')
   const [showTotals, setShowTotals] = useState(false)
+  const [cancelConfirmId, setCancelConfirmId] = useState<number | null>(null)
+  const [page, setPage] = useState(1)
+  const PAGE_SIZE = 50
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -208,6 +226,7 @@ export default function PaiementsPage() {
       await api.updatePayment({ id, status: 'cleared' })
       toast('✅ Chèque encaissé — Facture mise à jour')
       load()
+      window.dispatchEvent(new Event('app:refresh'))
     } catch (e: any) { toast(e.message, 'error') }
   }
 
@@ -216,11 +235,23 @@ export default function PaiementsPage() {
       await api.updatePayment({ id, status: 'bounced' })
       toast('Chèque marqué impayé', 'warning')
       load()
+      window.dispatchEvent(new Event('app:refresh'))
     } catch (e: any) { toast(e.message, 'error') }
+  }
+
+  async function handleCancelPayment(id: number) {
+    try {
+      await api.cancelPayment({ id, userId: 1 })
+      toast('✅ Paiement annulé — écriture comptable inversée', 'warning')
+      load()
+      window.dispatchEvent(new Event('app:refresh'))
+    } catch (e: any) { toast(e.message, 'error') }
+    finally { setCancelConfirmId(null) }
   }
 
   const filtered = payments.filter(p => {
     if (method !== 'all' && p.method !== method) return false
+    if (statusFilter !== 'all' && p.status !== statusFilter) return false
     if (dateFrom && p.date < dateFrom) return false
     if (dateTo   && p.date > dateTo)   return false
     if (search) {
@@ -234,6 +265,7 @@ export default function PaiementsPage() {
     return true
   })
 
+
   const getSeq = (p: any) => {
     const ref = p.reference ?? `P-${p.id}`
     const parts = ref.split('-')
@@ -242,6 +274,7 @@ export default function PaiementsPage() {
   const sortedFiltered = [...filtered].sort((a, b) =>
     sortDir === 'asc' ? getSeq(a) - getSeq(b) : getSeq(b) - getSeq(a)
   )
+  const paginated = sortedFiltered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
   const totalAmount = filtered.reduce((s, p) => s + (p.amount ?? 0), 0)
   const byCash   = filtered.filter(p => p.method === 'cash').reduce((s, p) => s + p.amount, 0)
@@ -297,6 +330,14 @@ export default function PaiementsPage() {
           <option value="cheque">Chèque</option>
           <option value="lcn">LCN</option>
         </select>
+        <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1) }} className="input w-36 text-sm">
+          <option value="all">Tous statuts</option>
+          <option value="pending">En attente</option>
+          <option value="cleared">Encaissé</option>
+          <option value="collected">Encaissé</option>
+          <option value="bounced">Impayé</option>
+          <option value="cancelled">Annulé</option>
+        </select>
         <input value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="input w-36 text-sm" type="date" />
         <span className="text-gray-400 text-xs">→</span>
         <input value={dateTo} onChange={e => setDateTo(e.target.value)} className="input w-36 text-sm" type="date" />
@@ -309,7 +350,7 @@ export default function PaiementsPage() {
       <div className="card overflow-y-auto flex-1 min-h-0">
         <table className="w-full text-sm table-fixed border-collapse" style={{ tableLayout: 'fixed', minWidth: '800px' }}>
           <colgroup>
-            <col style={{ width: '60px', minWidth: '60px' }} />
+            <col style={{ width: '100px', minWidth: '100px' }} />
             <col style={{ width: '75px', minWidth: '75px' }} />
             <col style={{ width: '20%' }} />
             <col style={{ width: '100px' }} />
@@ -354,7 +395,7 @@ export default function PaiementsPage() {
                 </td>
               </tr>
             )}
-            {!loading && sortedFiltered.map((p, i) => (
+            {!loading && paginated.map((p, i) => (
               <tr key={p.id ?? i}
                 onMouseDown={e => { (e.currentTarget as any)._mdX = e.clientX; (e.currentTarget as any)._mdY = e.clientY }}
                 onClick={e => {
@@ -413,15 +454,24 @@ export default function PaiementsPage() {
         </table>
       </div>
 
-      {/* Total Bar */}
+      {/* Total Bar + Pagination */}
       {!loading && filtered.length > 0 && (
-        <div
-          onClick={() => setShowTotals(true)}
-          className="flex items-center justify-between px-4 py-2.5 rounded-xl border border-primary/20 bg-primary/5 cursor-pointer hover:bg-primary/10 transition-colors shrink-0">
-          <span className="text-sm font-medium text-gray-600 dark:text-gray-300">
-            Total — {filtered.length} paiement{filtered.length > 1 ? 's' : ''}
-          </span>
-          <span className="text-base font-bold text-primary">{fmt(totalAmount)} MAD</span>
+        <div className="flex items-center gap-3 shrink-0">
+          <div
+            onClick={() => setShowTotals(true)}
+            className="flex-1 flex items-center justify-between px-4 py-2.5 rounded-xl border border-primary/20 bg-primary/5 cursor-pointer hover:bg-primary/10 transition-colors">
+            <span className="text-sm font-medium text-gray-600 dark:text-gray-300">
+              Total — {filtered.length} paiement{filtered.length > 1 ? 's' : ''}
+            </span>
+            <span className="text-base font-bold text-primary">{fmt(totalAmount)} MAD</span>
+          </div>
+          {filtered.length > PAGE_SIZE && (
+            <div className="flex items-center gap-1 shrink-0">
+              <button disabled={page === 1} onClick={() => setPage(p => p - 1)} className="btn-secondary btn-sm disabled:opacity-40">←</button>
+              <span className="text-xs text-gray-500 px-2">{page}/{Math.ceil(filtered.length / PAGE_SIZE)}</span>
+              <button disabled={page >= Math.ceil(filtered.length / PAGE_SIZE)} onClick={() => setPage(p => p + 1)} className="btn-secondary btn-sm disabled:opacity-40">→</button>
+            </div>
+          )}
         </div>
       )}
 
@@ -470,9 +520,31 @@ export default function PaiementsPage() {
             onClose={() => setSelected(null)}
             onClear={handleClear}
             onBounce={handleBounce}
+            onCancel={(id) => { setSelected(null); setCancelConfirmId(id) }}
           />
         )}
       </Drawer>
+
+      {/* Cancel Confirm Dialog */}
+      <ConfirmDialog
+        open={cancelConfirmId !== null}
+        title="Annuler ce paiement ?"
+        message={
+          <div className="space-y-1">
+            <p>Cette action va :</p>
+            <ul className="list-disc list-inside text-xs space-y-0.5 mt-1">
+              <li>Annuler le paiement définitivement</li>
+              <li>Créer une écriture comptable inverse</li>
+              <li>Remettre la facture liée à son état précédent</li>
+            </ul>
+            <p className="text-red-500 text-xs mt-2 font-medium">Cette opération est irréversible.</p>
+          </div>
+        }
+        confirmLabel="Oui, annuler"
+        danger
+        onConfirm={() => cancelConfirmId !== null && handleCancelPayment(cancelConfirmId)}
+        onCancel={() => setCancelConfirmId(null)}
+      />
 
       {/* New Payment Modal */}
       <Modal open={showNew} onClose={() => setShowNew(false)} title="Nouveau paiement" size="md">

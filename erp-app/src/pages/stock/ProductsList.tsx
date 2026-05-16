@@ -1,3 +1,4 @@
+import { fmt } from '../../lib/format'
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { api } from '../../lib/api'
 import { toast } from '../../components/ui/Toast'
@@ -6,6 +7,7 @@ import Drawer from '../../components/ui/Drawer'
 import ProductForm from '../../components/forms/ProductForm'
 import ProductDetail from './ProductDetail'
 import ImportButton from '../../components/ImportButton'
+import { productRowBg } from '../../lib/rowBg'
 import type { Product } from '../../types'
 
 import SkeletonRows from '../../components/ui/SkeletonRows'
@@ -73,7 +75,7 @@ export default function ProductsList() {
     return () => window.removeEventListener('app:refresh', handler)
   }, [load])
 
-  const fmt = (n: number) => new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n)
+  // fmt imported from lib/format
 
   // stock filter
   const filteredRows = rows.filter(p => {
@@ -183,7 +185,7 @@ export default function ProductsList() {
                     if ((e.target as HTMLElement).closest('button')) return
                     setSelectedId(p.id)
                   }}
-                  className="hover:bg-gray-50 dark:hover:bg-gray-700/30 cursor-pointer">
+                  className={`cursor-pointer transition-colors ${productRowBg(p.stock_quantity, p.min_stock)}`}>
                   <td className="px-4 py-3 text-center align-middle font-mono text-xs font-bold text-primary">{p.code}</td>
                   <td className="px-4 py-3 text-center align-middle font-medium">{p.name}</td>
                   <td className="px-4 py-3 text-center align-middle">
@@ -235,7 +237,7 @@ export default function ProductsList() {
         />
       </Modal>
 
-      <Drawer open={selectedId !== null} onClose={() => setSelectedId(null)} title="Fiche Produit" width="w-[700px]">
+      <Drawer open={selectedId !== null} onClose={() => setSelectedId(null)} title="Fiche Produit" defaultWidth={700}>
         {selectedId !== null && <ProductDetail id={selectedId} onClose={() => setSelectedId(null)} onStockChanged={load} />}
       </Drawer>
     </div>

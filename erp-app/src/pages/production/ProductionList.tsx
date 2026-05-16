@@ -1,3 +1,4 @@
+import { fmt } from '../../lib/format'
 import { useEffect, useState, useCallback } from 'react'
 import { api } from '../../lib/api'
 import { useAuthStore } from '../../store/auth.store'
@@ -13,7 +14,7 @@ const STATUS_CFG = {
   cancelled: { label: 'Annulé',    cls: 'badge-red' },
 } as const
 
-const fmt = (n: number) => new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n ?? 0)
+// fmt imported from lib/format
 
 export default function ProductionList() {
 
@@ -22,6 +23,9 @@ export default function ProductionList() {
   const [modalOpen, setModalOpen] = useState(false)
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [statusFilter, setStatusFilter] = useState<string>('all')
+  const [search, setSearch]       = useState('')
+  const [page, setPage]           = useState(1)
+  const PAGE_SIZE = 50
   const { user } = useAuthStore()
   const userId = user?.id ?? 1
 
@@ -54,9 +58,15 @@ export default function ProductionList() {
   const cancelled = rows.filter(r => r.status === 'cancelled').length
   void cancelled // used in filter tabs
 
-  const filtered = statusFilter === 'all'
-    ? rows
-    : rows.filter(r => r.status === statusFilter)
+  const filtered = rows.filter(r => {
+    if (statusFilter !== 'all' && r.status !== statusFilter) return false
+    if (search) {
+      const q = search.toLowerCase()
+      if (!r.product_name?.toLowerCase().includes(q) && !String(r.id).includes(q)) return false
+    }
+    return true
+  })
+  const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
   return (
     <div className="h-full flex flex-col gap-3 overflow-hidden">
@@ -68,6 +78,10 @@ export default function ProductionList() {
           + Nouvel Ordre de Production
         </button>
         <button onClick={load} className="btn-secondary btn-sm ml-auto">↻ Actualiser</button>
+        <button onClick={async () => {
+          try { await api.excelExportReport({ type: 'production', rows: filtered, filters: {} }); toast('✅ Excel enregistré') }
+          catch (e: any) { toast(e.message, 'error') }
+        }} className="btn-secondary btn-sm">📤 Excel</button>
       </div>
 
       {/* ── KPIs ── */}
@@ -108,6 +122,8 @@ export default function ProductionList() {
           ))}
         </div>
         <div className="ml-auto flex items-center gap-2">
+          <input value={search} onChange={e => { setSearch(e.target.value); setPage(1) }}
+            className="input text-sm max-w-xs" placeholder="Rechercher produit..." />
           <span className="text-sm text-gray-500">{filtered.length} ordre(s)</span>
         </div>
       </div>
@@ -154,7 +170,7 @@ export default function ProductionList() {
                 )}
               </td></tr>
             )}
-            {!loading && filtered.map(r => (
+            {!loading && paginated.map(r => (
               <tr key={r.id}
                 onMouseDown={e => { (e.currentTarget as any)._mdX = e.clientX; (e.currentTarget as any)._mdY = e.clientY }}
                   onClick={e => {
@@ -198,11 +214,20 @@ export default function ProductionList() {
       </div>
 
       {!loading && filtered.length > 0 && (
-        <div className="shrink-0 flex items-center justify-between px-4 py-2.5 rounded-xl border border-primary/20 bg-primary/5">
-          <span className="text-sm font-medium text-gray-600 dark:text-gray-300">
-            Total — {filtered.length} ordre{filtered.length > 1 ? 's' : ''}
-          </span>
-          <span className="text-base font-bold text-primary whitespace-nowrap" style={{ marginRight: "calc(90px + 72px)" }}>{fmt(filtered.reduce((s, r) => s + r.total_cost, 0))} MAD</span>
+        <div className="shrink-0 flex items-center gap-3">
+          <div className="flex-1 flex items-center justify-between px-4 py-2.5 rounded-xl border border-primary/20 bg-primary/5">
+            <span className="text-sm font-medium text-gray-600 dark:text-gray-300">
+              Total — {filtered.length} ordre{filtered.length > 1 ? 's' : ''}
+            </span>
+            <span className="text-base font-bold text-primary">{fmt(filtered.reduce((s, r) => s + r.total_cost, 0))} MAD</span>
+          </div>
+          {filtered.length > PAGE_SIZE && (
+            <div className="flex items-center gap-1 shrink-0">
+              <button disabled={page === 1} onClick={() => setPage(p => p - 1)} className="btn-secondary btn-sm disabled:opacity-40">←</button>
+              <span className="text-xs text-gray-500 px-2">{page}/{Math.ceil(filtered.length / PAGE_SIZE)}</span>
+              <button disabled={page >= Math.ceil(filtered.length / PAGE_SIZE)} onClick={() => setPage(p => p + 1)} className="btn-secondary btn-sm disabled:opacity-40">→</button>
+            </div>
+          )}
         </div>
       )}
 

@@ -1,26 +1,188 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.createAccountingEntry = createAccountingEntry;
+exports.createReverseAccountingEntries = createReverseAccountingEntries;
+exports.deleteAccountingEntriesForCancelledDocument = deleteAccountingEntriesForCancelledDocument;
+exports.checkPeriodOpen = checkPeriodOpen;
 exports.createPaymentEntry = createPaymentEntry;
 function createAccountingEntry(db, doc, lines, userId) {
+    // ✅ التحقق من حالة المستند - مبدأ الحيطة والحذر (CGNC)
+    // لا ننشئ قيود محاسبية للمستندات الملغية أو المحذوفة
+    if (doc.status === 'cancelled' || doc.status === 'deleted') {
+        console.log(`[ACCOUNTING] تخطي إنشاء قيد محاسبي للمستند ${doc.number} - الحالة: ${doc.status}`);
+        return null;
+    }
+    // ✅ التحقق من وجود قيد محاسبي مسبق لتجنب التكرار
+    const existingEntry = db.prepare(`
+    SELECT id FROM journal_entries 
+    WHERE source_type = ? AND source_id = ?
+  `).get(doc.type, doc.id);
+    if (existingEntry) {
+        console.log(`[ACCOUNTING] قيد محاسبي موجود مسبقاً للمستند ${doc.number} - ID: ${existingEntry.id}`);
+        return existingEntry.id;
+    }
     const handler = ENTRY_HANDLERS[doc.type];
     if (!handler)
         return null;
+    console.log(`[ACCOUNTING] إنشاء قيد محاسبي للمستند ${doc.number} - النوع: ${doc.type}`);
     return handler(db, doc, lines, userId);
 }
 // ==========================================
-// ACCOUNT CODES (من CGNC الرسمي — Plan Comptable Marocain)
+// إنشاء قيود عكسية (Contre-passation) للمستندات الملغية
+// تطبيق مبدأ الحيطة والحذر حسب CGNC
+// ==========================================
+/**
+ * ينشئ قيوداً عكسية (contre-passation) للقيود المحاسبية المرتبطة بمستند ملغي.
+ *
+ * بدلاً من حذف القيود الأصلية، ننشئ قيوداً جديدة بنفس المبالغ معكوسة
+ * (المدين يصبح دائن والدائن يصبح مدين) مع وصف "Annulation: [رقم المستند]"
+ *
+ * هذا يحافظ على:
+ * - السجل المحاسبي الكامل (audit trail)
+ * - الامتثال لمعايير CGNC المغربية
+ * - إمكانية تتبع جميع العمليات
+ */
+function createReverseAccountingEntries(db, docType, docId, docNumber, userId = 1) {
+    // جلب القيود المرتبطة بالمستند
+    const entries = db.prepare(`
+    SELECT id, date, reference, description, is_auto, source_type, source_id, created_by, created_at
+    FROM journal_entries
+    WHERE source_type = ? AND source_id = ?
+      AND reference NOT LIKE 'ANNUL-%'
+  `).all(docType, docId);
+    if (entries.length === 0) {
+        console.log(`[ACCOUNTING] لا توجد قيود محاسبية للمستند ${docNumber}`);
+        return;
+    }
+    // ─── Transaction واحدة: إنشاء القيود العكسية ───────────────
+    const transaction = db.transaction(() => {
+        for (const entry of entries) {
+            // 1. جلب خطوط القيد الأصلي
+            const entryLines = db.prepare(`
+        SELECT jl.id, jl.account_id, a.code as account_code, a.name as account_name,
+               jl.debit, jl.credit, jl.notes
+        FROM journal_lines jl
+        JOIN accounts a ON a.id = jl.account_id
+        WHERE jl.entry_id = ?
+      `).all(entry.id);
+            // 2. إنشاء قيد عكسي جديد
+            const reverseDate = new Date().toISOString().split('T')[0];
+            const reverseRef = `ANNUL-${entry.reference ?? docNumber}`;
+            const reverseDesc = `Annulation: ${entry.description ?? docNumber}`;
+            const reverseEntry = db.prepare(`
+        INSERT INTO journal_entries (date, reference, description, is_auto, source_type, source_id, created_by)
+        VALUES (?, ?, ?, 1, ?, ?, ?)
+      `).run(reverseDate, reverseRef, reverseDesc, docType, docId, userId);
+            const newEntryId = reverseEntry.lastInsertRowid;
+            // 3. إنشاء خطوط القيد العكسي (عكس المدين والدائن)
+            for (const line of entryLines) {
+                db.prepare(`
+          INSERT INTO journal_lines (entry_id, account_id, debit, credit, notes)
+          VALUES (?, ?, ?, ?, ?)
+        `).run(newEntryId, line.account_id, line.credit, // الدائن يصبح مدين
+                line.debit, // المدين يصبح دائن
+                `Annulation: ${line.notes ?? ''}`);
+            }
+            // 4. تسجيل في audit_log
+            db.prepare(`
+        INSERT INTO audit_log (user_id, action, table_name, record_id, old_values, new_values, reason)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(userId, 'REVERSE_JOURNAL_ENTRY', 'journal_entries', entry.id, JSON.stringify({
+                original_entry_id: entry.id,
+                original_reference: entry.reference,
+                lines: entryLines.map(l => ({
+                    account_code: l.account_code,
+                    debit: l.debit,
+                    credit: l.credit,
+                })),
+            }), JSON.stringify({
+                reverse_entry_id: newEntryId,
+                reverse_reference: reverseRef,
+                lines: entryLines.map(l => ({
+                    account_code: l.account_code,
+                    debit: l.credit, // معكوس
+                    credit: l.debit, // معكوس
+                })),
+            }), `Contre-passation pour annulation document ${docNumber}`);
+            console.log(`[ACCOUNTING] قيد عكسي ${reverseRef} للقيد الأصلي ${entry.reference} (entry_id=${newEntryId})`);
+        }
+    });
+    try {
+        transaction();
+        console.log(`[ACCOUNTING] تم إنشاء ${entries.length} قيد عكسي للمستند ${docNumber}`);
+    }
+    catch (error) {
+        // ─── سجّل الخطأ في audit_log ثم ارمِ exception واضح ───────────────
+        try {
+            db.prepare(`
+        INSERT INTO audit_log (user_id, action, table_name, record_id, old_values, reason)
+        VALUES (?, 'ERROR', 'journal_entries', ?, ?, ?)
+      `).run(userId, docId, JSON.stringify({ docType, docNumber, error: error.message }), `ÉCHEC création écritures de contre-passation — annulation document ${docNumber} avortée`);
+        }
+        catch {
+            // إذا فشل حتى التسجيل — نتجاهل لأننا سنرمي الخطأ الأصلي على أي حال
+        }
+        console.error(`[ACCOUNTING] فشل إنشاء القيود العكسية للمستند ${docNumber}:`, error);
+        throw new Error(`Échec de la création des écritures de contre-passation du document ${docNumber} — annulation avortée. Détail: ${error.message}`);
+    }
+}
+/**
+ * دالة قديمة للتوافق مع الكود الموجود - تستدعي الدالة الجديدة
+ * @deprecated استخدم createReverseAccountingEntries بدلاً منها
+ */
+function deleteAccountingEntriesForCancelledDocument(db, docType, docId, docNumber, userId = 1) {
+    createReverseAccountingEntries(db, docType, docId, docNumber, userId);
+}
+// ==========================================
+// VÉRIFICATION DE LA PÉRIODE COMPTABLE
+// Refuse toute écriture dans une période fermée ou verrouillée (CGNC)
+// ==========================================
+/**
+ * Vérifie qu'une date tombe dans une période comptable ouverte.
+ * Lance une erreur si la période est closed ou locked.
+ * Si aucune période n'est définie pour cette date, on laisse passer
+ * (comportement permissif pour les entreprises sans périodes configurées).
+ */
+function checkPeriodOpen(db, date) {
+    const period = db.prepare(`
+    SELECT id, name, status
+    FROM accounting_periods
+    WHERE start_date <= ? AND end_date >= ?
+    ORDER BY start_date DESC
+    LIMIT 1
+  `).get(date, date);
+    if (!period)
+        return; // aucune période configurée → on laisse passer
+    if (period.status === 'locked') {
+        throw new Error(`Période comptable verrouillée — impossible de créer des écritures dans la période "${period.name}". Contactez l'administrateur.`);
+    }
+    if (period.status === 'closed') {
+        throw new Error(`Période comptable clôturée — impossible de créer des écritures dans la période "${period.name}". Rouvrez la période ou choisissez une autre date.`);
+    }
+}
+function round(value, decimals) {
+    const factor = Math.pow(10, decimals);
+    return Math.round((value + Number.EPSILON) * factor) / factor;
+}
+function roundAmt(value) {
+    return round(value, 2);
+}
+function roundQty(value) {
+    return round(value, 4);
+}
 // المراجع: Plan Comptable Marocain + CGNC
 // ==========================================
 const ACC = {
     // Classe 3 — Actif circulant
     CLIENTS: '3421', // Clients (342 Clients et comptes rattachés)
+    EFFETS_RECEVOIR: '3425', // Effets à recevoir (LCN, chèques clients)
     TVA_RECUPERABLE: '3455', // État — TVA récupérable sur charges (34552)
     CREDIT_TVA: '3456', // État — Crédit de TVA (suivant déclaration)
     STOCK_MATIERES: '3121', // Matières premières (stock)
     STOCK_PRODUITS: '3151', // Produits finis (stock)
     // Classe 4 — Passif circulant
     FOURNISSEURS: '4411', // Fournisseurs (441 Fournisseurs et comptes rattachés)
+    EFFETS_PAYER: '4415', // Effets à payer (LCN, chèques fournisseurs)
     TVA_FACTUREE: '4455', // État — TVA facturée
     TVA_DUE: '4456', // État — TVA due (suivant déclarations)
     DETTES_DIVERS: '4481', // Dettes sur acquisitions (douanes, transitaire, etc.)
@@ -42,10 +204,33 @@ function getAccountId(db, code) {
     return row.id;
 }
 function insertEntry(db, doc, description, lines, userId) {
+    // ✅ التحقق من أن الفترة المحاسبية مفتوحة قبل أي إدراج
+    checkPeriodOpen(db, doc.date);
+    // ✅ المشكلة 4: ملء period_id تلقائياً بالفترة المقابلة للتاريخ
+    // إذا لم توجد فترة → period_id = null (سلوك متساهل — لا نوقف العملية)
+    const periodRow = db.prepare(`
+    SELECT id FROM accounting_periods
+    WHERE start_date <= ? AND end_date >= ?
+      AND status != 'locked'
+    ORDER BY start_date DESC
+    LIMIT 1
+  `).get(doc.date, doc.date);
+    const periodId = periodRow?.id ?? null;
+    if (!periodId) {
+        // تحذير في audit_log — لا نوقف العملية
+        try {
+            db.prepare(`
+        INSERT INTO audit_log (user_id, action, table_name, record_id, new_values, reason)
+        VALUES (?, 'ERROR', 'journal_entries', NULL, ?, ?)
+      `).run(userId, JSON.stringify({ doc_number: doc.number, doc_date: doc.date }), `Aucune période comptable ouverte pour la date ${doc.date} — period_id non renseigné`);
+        }
+        catch { /* audit ne bloque jamais */ }
+        console.warn(`[ACCOUNTING] ⚠️ Aucune période pour la date ${doc.date} — period_id sera NULL pour le document ${doc.number}`);
+    }
     const entry = db.prepare(`
-    INSERT INTO journal_entries (date, reference, description, is_auto, source_type, source_id, created_by)
-    VALUES (?, ?, ?, 1, ?, ?, ?)
-  `).run(doc.date, doc.number, description, doc.type, doc.id, userId);
+    INSERT INTO journal_entries (date, period_id, reference, description, is_auto, source_type, source_id, created_by)
+    VALUES (?, ?, ?, ?, 1, ?, ?, ?)
+  `).run(doc.date, periodId, doc.number, description, doc.type, doc.id, userId);
     const entryId = entry.lastInsertRowid;
     for (const line of lines) {
         if (line.debit === 0 && line.credit === 0)
@@ -147,10 +332,10 @@ const ENTRY_HANDLERS = {
         let materials_cost = 0;
         for (const line of bom_lines) {
             const product = db.prepare('SELECT cmup_price FROM products WHERE id = ?').get(line.material_id);
-            materials_cost += (line.quantity * order.quantity) * (product?.cmup_price ?? 0);
+            materials_cost = roundAmt(materials_cost + roundAmt(roundQty(line.quantity * order.quantity) * roundAmt(product?.cmup_price ?? 0)));
         }
-        const labor_cost = (bom?.labor_cost ?? 0) * order.quantity;
-        const total_cost = materials_cost + labor_cost;
+        const labor_cost = roundAmt((bom?.labor_cost ?? 0) * order.quantity);
+        const total_cost = roundAmt(materials_cost + labor_cost);
         const entryLines = [
             { accountCode: ACC.STOCK_PRODUITS, debit: total_cost, credit: 0, notes: `Production ${order.quantity} unités` },
             { accountCode: ACC.STOCK_MATIERES, debit: 0, credit: materials_cost, notes: 'Consommation matières' },
@@ -167,9 +352,9 @@ const ENTRY_HANDLERS = {
         if (!trans)
             return insertEntry(db, doc, `Transformation ${doc.number}`, [], userId);
         const material = db.prepare('SELECT cmup_price FROM products WHERE id = ?').get(trans.raw_material_id);
-        const material_cost = (material?.cmup_price ?? 0) * trans.input_quantity;
-        const transform_cost = (trans.cost_per_unit ?? 0) * trans.input_quantity;
-        const total_cost = material_cost + transform_cost;
+        const material_cost = roundAmt(roundAmt(material?.cmup_price ?? 0) * roundQty(trans.input_quantity));
+        const transform_cost = roundAmt(roundAmt(trans.cost_per_unit ?? 0) * roundQty(trans.input_quantity));
+        const total_cost = roundAmt(material_cost + transform_cost);
         const entryLines = [
             { accountCode: ACC.STOCK_PRODUITS, debit: total_cost, credit: 0, notes: 'Produits transformés' },
             { accountCode: ACC.STOCK_MATIERES, debit: 0, credit: material_cost, notes: 'Matière consommée' },
@@ -196,7 +381,7 @@ const ENTRY_HANDLERS = {
                 if (!line.product_id)
                     continue;
                 const product = db.prepare('SELECT cmup_price FROM products WHERE id = ?').get(line.product_id);
-                totalCmup += (product?.cmup_price ?? 0) * line.quantity;
+                totalCmup = roundAmt(totalCmup + roundAmt(roundAmt(product?.cmup_price ?? 0) * roundQty(line.quantity)));
             }
             if (totalCmup === 0)
                 return insertEntry(db, doc, `BL ${doc.number}`, [], userId);
@@ -212,7 +397,7 @@ const ENTRY_HANDLERS = {
             if (!line.product_id)
                 continue;
             const product = db.prepare('SELECT cmup_price FROM products WHERE id = ?').get(line.product_id);
-            totalCmup += (product?.cmup_price ?? 0) * line.quantity;
+            totalCmup = roundAmt(totalCmup + roundAmt(roundAmt(product?.cmup_price ?? 0) * roundQty(line.quantity)));
         }
         const entryLines = [
             { accountCode: ACC.CLIENTS, debit: doc.total_ttc, credit: 0 },
@@ -245,9 +430,9 @@ const ENTRY_HANDLERS = {
 // PAYMENT ENTRY (② تسجيل دفعة)
 // ==========================================
 function createPaymentEntry(db, payment, userId) {
-    const bankAccount = payment.method === 'cash' ? ACC.CAISSE : ACC.BANQUE;
-    const partyAccount = payment.party_type === 'client' ? ACC.CLIENTS : ACC.FOURNISSEURS;
     const isClientPayment = payment.party_type === 'client';
+    const isEffect = payment.method === 'cheque' || payment.method === 'lcn';
+    const isPending = payment.status === 'pending';
     const fakeDoc = {
         id: payment.id,
         type: 'payment',
@@ -259,15 +444,59 @@ function createPaymentEntry(db, payment, userId) {
         total_tva: 0,
         total_ttc: payment.amount,
     };
-    const entryLines = isClientPayment
-        ? [
-            { accountCode: bankAccount, debit: payment.amount, credit: 0 },
-            { accountCode: partyAccount, debit: 0, credit: payment.amount },
-        ]
-        : [
-            { accountCode: partyAccount, debit: payment.amount, credit: 0 },
-            { accountCode: bankAccount, debit: 0, credit: payment.amount },
-        ];
+    let entryLines;
+    // ✅ حسب CGNC المغربي
+    if (isEffect && isPending) {
+        // 🔹 LCN/Chèque بحالة pending → تحويل من Clients/Fournisseurs إلى Effets
+        if (isClientPayment) {
+            // استلام شيك/LCN من عميل
+            entryLines = [
+                { accountCode: ACC.EFFETS_RECEVOIR, debit: payment.amount, credit: 0 },
+                { accountCode: ACC.CLIENTS, debit: 0, credit: payment.amount },
+            ];
+        }
+        else {
+            // إعطاء شيك/LCN لمورد
+            entryLines = [
+                { accountCode: ACC.FOURNISSEURS, debit: payment.amount, credit: 0 },
+                { accountCode: ACC.EFFETS_PAYER, debit: 0, credit: payment.amount },
+            ];
+        }
+    }
+    else if (isEffect && !isPending) {
+        // 🔹 LCN/Chèque cleared → تحويل من Effets إلى Banque
+        if (isClientPayment) {
+            // صرف شيك/LCN عميل
+            entryLines = [
+                { accountCode: ACC.BANQUE, debit: payment.amount, credit: 0 },
+                { accountCode: ACC.EFFETS_RECEVOIR, debit: 0, credit: payment.amount },
+            ];
+        }
+        else {
+            // استحقاق شيك/LCN مورد
+            entryLines = [
+                { accountCode: ACC.EFFETS_PAYER, debit: payment.amount, credit: 0 },
+                { accountCode: ACC.BANQUE, debit: 0, credit: payment.amount },
+            ];
+        }
+    }
+    else {
+        // 🔹 Cash/Bank → مباشرة من/إلى Clients/Fournisseurs
+        const bankAccount = payment.method === 'cash' ? ACC.CAISSE : ACC.BANQUE;
+        const partyAccount = isClientPayment ? ACC.CLIENTS : ACC.FOURNISSEURS;
+        if (isClientPayment) {
+            entryLines = [
+                { accountCode: bankAccount, debit: payment.amount, credit: 0 },
+                { accountCode: partyAccount, debit: 0, credit: payment.amount },
+            ];
+        }
+        else {
+            entryLines = [
+                { accountCode: partyAccount, debit: payment.amount, credit: 0 },
+                { accountCode: bankAccount, debit: 0, credit: payment.amount },
+            ];
+        }
+    }
     return insertEntry(db, fakeDoc, `Règlement ${payment.party_type} — ${payment.reference ?? ''}`, entryLines, userId);
 }
 // ==========================================
@@ -277,7 +506,7 @@ function groupTvaByRate(lines) {
     const map = new Map();
     for (const line of lines) {
         const current = map.get(line.tva_rate) ?? 0;
-        map.set(line.tva_rate, current + line.total_tva);
+        map.set(line.tva_rate, roundAmt(current + line.total_tva));
     }
     return Array.from(map.entries()).map(([rate, amount]) => ({ rate, amount }));
 }

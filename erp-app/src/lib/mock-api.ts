@@ -24,6 +24,7 @@ const MOCK_CONFIG: DeviceConfig = {
   company_email: '',
   company_website: '',
   company_cnss: '',
+  company_patente: '',
   company_bank_name: '',
   company_bank_rib: '',
   company_bank_account: '',

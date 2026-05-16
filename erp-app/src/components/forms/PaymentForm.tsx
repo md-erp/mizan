@@ -1,3 +1,4 @@
+import { fmt } from '../../lib/format'
 import { useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -5,6 +6,7 @@ import { z } from 'zod'
 import { api } from '../../lib/api'
 import { toast } from '../ui/Toast'
 import FormField from '../ui/FormField'
+import NumberInput from '../ui/NumberInput'
 import DocumentNumberField from '../ui/DocumentNumberField'
 
 const schema = z.object({
@@ -29,7 +31,7 @@ const METHODS = [
 interface Props {
   partyId: number
   partyType: 'client' | 'supplier'
-  documentId?: number   // إذا كان محدداً، الدفعة مرتبطة بفاتورة واحدة
+  documentId?: number
   maxAmount?: number
   onSaved: () => void
   onCancel: () => void
@@ -37,9 +39,13 @@ interface Props {
 
 export default function PaymentForm({ partyId, partyType, documentId, maxAmount, onSaved, onCancel }: Props) {
   const [unpaidDocs, setUnpaidDocs] = useState<any[]>([])
-  const [selectedDocId, setSelectedDocId] = useState<number | null>(documentId ?? null)
+  const [selectedDocIds, setSelectedDocIds] = useState<Set<number>>(
+    documentId ? new Set([documentId]) : new Set()
+  )
   const [paidAmounts, setPaidAmounts] = useState<Record<number, number>>({})
   const [customSeq, setCustomSeq] = useState<number | undefined>(undefined)
+  const [useMulti, setUseMulti] = useState(false)
+
   const { register, handleSubmit, watch, setValue, formState: { errors, isSubmitting } } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: {
@@ -50,9 +56,7 @@ export default function PaymentForm({ partyId, partyType, documentId, maxAmount,
   })
 
   const method = watch('method')
-  const fmt = (n: number) => new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n)
 
-  // إذا لم يكن documentId محدداً، نجلب الفواتير غير المدفوعة
   useEffect(() => {
     if (documentId) return
     api.getDocuments({ party_id: partyId, limit: 9999 } as any).then(async (r: any) => {
@@ -72,30 +76,55 @@ export default function PaymentForm({ partyId, partyType, documentId, maxAmount,
     })
   }, [partyId, partyType, documentId])
 
-  // عند اختيار فاتورة، نملأ المبلغ تلقائياً
-  function handleSelectDoc(docId: number | null) {
-    setSelectedDocId(docId)
-    if (docId) {
+  // عند اختيار فاتورة واحدة (radio)
+  function handleSelectSingle(docId: number | null) {
+    if (docId === null) {
+      setSelectedDocIds(new Set())
+      setValue('amount', 0)
+    } else {
+      setSelectedDocIds(new Set([docId]))
       const doc = unpaidDocs.find(d => d.id === docId)
-      if (doc) {
-        const remaining = doc.total_ttc - (paidAmounts[docId] ?? 0)
-        setValue('amount', Math.round(remaining * 100) / 100)
-      }
+      if (doc) setValue('amount', Math.round((doc.total_ttc - (paidAmounts[docId] ?? 0)) * 100) / 100)
     }
   }
 
+  // عند تحديد/إلغاء فاتورة في الوضع المتعدد
+  function handleToggleDoc(docId: number) {
+    const next = new Set(selectedDocIds)
+    if (next.has(docId)) next.delete(docId)
+    else next.add(docId)
+    setSelectedDocIds(next)
+    // تحديث المبلغ تلقائياً بمجموع الفواتير المختارة
+    const total = unpaidDocs
+      .filter(d => next.has(d.id))
+      .reduce((s, d) => s + (d.total_ttc - (paidAmounts[d.id] ?? 0)), 0)
+    setValue('amount', Math.round(total * 100) / 100)
+  }
+
+  const singleSelected = !useMulti && selectedDocIds.size === 1 ? [...selectedDocIds][0] : null
+
   async function onSubmit(data: FormData) {
     try {
-      await api.createPayment({
-        ...data,
-        party_id:    partyId,
-        party_type:  partyType,
-        document_id: selectedDocId ?? null,
-        status: data.method === 'cash' || data.method === 'bank' ? 'collected' : 'pending',
-        created_by: 1,
-        ...(customSeq !== undefined ? { custom_seq: customSeq } : {}),
-      })
-      toast('Paiement enregistré')
+      const status = data.method === 'cash' || data.method === 'bank' ? 'collected' : 'pending'
+      const base = { ...data, party_id: partyId, party_type: partyType, status, created_by: 1,
+        ...(customSeq !== undefined ? { custom_seq: customSeq } : {}) }
+
+      if (useMulti && selectedDocIds.size > 1) {
+        // دفعة على فواتير متعددة — ننشئ دفعة لكل فاتورة
+        const docs = unpaidDocs.filter(d => selectedDocIds.has(d.id))
+        const totalRemaining = docs.reduce((s, d) => s + (d.total_ttc - (paidAmounts[d.id] ?? 0)), 0)
+        for (const doc of docs) {
+          const remaining = doc.total_ttc - (paidAmounts[doc.id] ?? 0)
+          const allocated = totalRemaining > 0
+            ? Math.round((remaining / totalRemaining) * data.amount * 100) / 100
+            : remaining
+          await api.createPayment({ ...base, amount: allocated, document_id: doc.id })
+        }
+        toast(`${docs.length} paiements enregistrés`)
+      } else {
+        await api.createPayment({ ...base, document_id: singleSelected ?? (documentId ?? null) })
+        toast('Paiement enregistré')
+      }
       onSaved()
     } catch (e: any) {
       toast(e.message, 'error')
@@ -104,59 +133,66 @@ export default function PaymentForm({ partyId, partyType, documentId, maxAmount,
 
   return (
     <div className="space-y-4">
-      {/* اختيار الفاتورة إذا لم تكن محددة مسبقاً */}
+      {/* اختيار الفاتورة */}
       {!documentId && unpaidDocs.length > 0 && (
-        <FormField label={partyType === 'client' ? "Imputer sur une facture" : "Régler une facture fournisseur"}>
-          <div className="space-y-1 max-h-40 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-lg p-2">
-            <label className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer text-sm
-              ${selectedDocId === null ? 'bg-primary/10 text-primary' : 'hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
-              <input type="radio" checked={selectedDocId === null} onChange={() => handleSelectDoc(null)} className="accent-primary" />
-              <span className="text-gray-500 italic">Sans imputation (acompte général)</span>
-            </label>
-            {unpaidDocs.map(doc => {
-              const remaining = doc.total_ttc - (paidAmounts[doc.id] ?? 0)
-              return (
-                <label key={doc.id} className={`flex items-center justify-between gap-2 px-2 py-1.5 rounded cursor-pointer text-sm
-                  ${selectedDocId === doc.id ? 'bg-primary/10 text-primary' : 'hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
-                  <div className="flex items-center gap-2">
-                    <input type="radio" checked={selectedDocId === doc.id} onChange={() => handleSelectDoc(doc.id)} className="accent-primary" />
-                    <span className="font-mono text-xs font-bold">{doc.number}</span>
-                    <span className="text-gray-400 text-xs">{new Date(doc.date).toLocaleDateString('fr-FR')}</span>
-                  </div>
-                  <span className="font-semibold text-orange-500">{fmt(remaining)} MAD</span>
+        <FormField label={partyType === 'client' ? 'Imputer sur une facture' : 'Régler une facture fournisseur'}>
+          <div className="space-y-2">
+            {/* Toggle multi */}
+            {unpaidDocs.length > 1 && (
+              <label className="flex items-center gap-2 text-xs text-gray-500 cursor-pointer select-none">
+                <input type="checkbox" checked={useMulti} onChange={e => { setUseMulti(e.target.checked); setSelectedDocIds(new Set()); setValue('amount', 0) }} className="accent-primary" />
+                Régler plusieurs factures à la fois
+              </label>
+            )}
+
+            <div className="space-y-1 max-h-44 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-lg p-2">
+              {!useMulti && (
+                <label className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer text-sm
+                  ${selectedDocIds.size === 0 ? 'bg-primary/10 text-primary' : 'hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
+                  <input type="radio" checked={selectedDocIds.size === 0} onChange={() => handleSelectSingle(null)} className="accent-primary" />
+                  <span className="text-gray-500 italic">Sans imputation (acompte général)</span>
                 </label>
-              )
-            })}
+              )}
+              {unpaidDocs.map(doc => {
+                const remaining = doc.total_ttc - (paidAmounts[doc.id] ?? 0)
+                const isSelected = selectedDocIds.has(doc.id)
+                return (
+                  <label key={doc.id} className={`flex items-center justify-between gap-2 px-2 py-1.5 rounded cursor-pointer text-sm
+                    ${isSelected ? 'bg-primary/10 text-primary' : 'hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
+                    <div className="flex items-center gap-2">
+                      {useMulti
+                        ? <input type="checkbox" checked={isSelected} onChange={() => handleToggleDoc(doc.id)} className="accent-primary" />
+                        : <input type="radio" checked={isSelected} onChange={() => handleSelectSingle(doc.id)} className="accent-primary" />
+                      }
+                      <span className="font-mono text-xs font-bold">{doc.number}</span>
+                      <span className="text-gray-400 text-xs">{new Date(doc.date).toLocaleDateString('fr-FR')}</span>
+                    </div>
+                    <span className="font-semibold text-orange-500 shrink-0">{fmt(remaining)} MAD</span>
+                  </label>
+                )
+              })}
+            </div>
           </div>
         </FormField>
       )}
 
-      {/* Numéro de paiement */}
       <FormField label="Numéro du paiement">
-        <DocumentNumberField
-          docType="payment"
-          onSeqChange={setCustomSeq}
-        />
+        <DocumentNumberField docType="payment" onSeqChange={setCustomSeq} />
       </FormField>
 
-      {/* Montant */}
       <FormField label="Montant (MAD)" required error={errors.amount?.message}>
-        <input {...register('amount')} className="input text-lg font-semibold" type="number"
-          min="0.01" step="0.01" autoFocus />
-        {maxAmount && !selectedDocId && (
+        <NumberInput {...register('amount')} className="input text-lg font-semibold" min="0.01" decimals={2} autoFocus />
+        {maxAmount && selectedDocIds.size === 0 && (
           <p className="text-xs text-gray-400 mt-1">Solde total: {fmt(maxAmount)} MAD</p>
         )}
       </FormField>
 
-      {/* Mode */}
       <FormField label="Mode de paiement" required error={errors.method?.message}>
         <div className="grid grid-cols-4 gap-2">
           {METHODS.map(m => (
             <label key={m.value}
               className={`text-center py-2.5 rounded-lg border text-xs font-medium cursor-pointer transition-all
-                ${watch('method') === m.value
-                  ? 'bg-primary text-white border-primary'
-                  : 'border-gray-200 text-gray-600 hover:border-primary/50'}`}>
+                ${watch('method') === m.value ? 'bg-primary text-white border-primary' : 'border-gray-200 text-gray-600 hover:border-primary/50'}`}>
               <input {...register('method')} type="radio" value={m.value} className="hidden" />
               {m.label}
             </label>
@@ -164,7 +200,6 @@ export default function PaymentForm({ partyId, partyType, documentId, maxAmount,
         </div>
       </FormField>
 
-      {/* Date */}
       <div className="grid grid-cols-2 gap-3">
         <FormField label="Date de paiement" required error={errors.date?.message}>
           <input {...register('date')} className="input" type="date" />

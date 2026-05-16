@@ -192,6 +192,7 @@ function generateMasterTemplate(data: PdfInvoiceData): string {
       <td style="padding:11px 14px;font-size:12px;text-align:center;color:#666;">${l.unit ?? 'U'}</td>
       <td style="padding:11px 14px;font-size:12px;text-align:center;color:#555;font-weight:600;">${l.quantity}</td>
       <td style="padding:11px 14px;font-size:12px;text-align:right;color:#555;">${fmt(l.unit_price)}</td>
+      <td style="padding:11px 14px;font-size:12px;text-align:right;color:#E67E22;font-weight:600;">${l.discount ? Math.round(l.discount) + '%' : '—'}</td>
       <td style="padding:11px 14px;font-size:13px;font-weight:800;text-align:right;color:${BLUE_MID};">${fmt(l.total_ht ?? (l.quantity * l.unit_price))}</td>
     </tr>`).join('')
 
@@ -284,6 +285,7 @@ function generateMasterTemplate(data: PdfInvoiceData): string {
           <th style="padding:12px 14px;text-align:center;font-size:11px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;width:70px;">Unité</th>
           <th style="padding:12px 14px;text-align:center;font-size:11px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;width:80px;">Qté</th>
           <th style="padding:12px 14px;text-align:right;font-size:11px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;width:110px;">Prix U (HT)</th>
+          <th style="padding:12px 14px;text-align:right;font-size:11px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;width:80px;">Remise</th>
           <th style="padding:12px 14px;text-align:right;font-size:11px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;width:110px;">Total (HT)</th>
         </tr>
       </thead>
@@ -297,6 +299,12 @@ function generateMasterTemplate(data: PdfInvoiceData): string {
           <span style="font-size:12px;color:#666;font-weight:600;">Total HT</span>
           <span style="font-size:12px;font-weight:700;color:#222;">${fmt(doc.total_ht ?? doc.total_ttc)} DH</span>
         </div>
+        ${(doc.global_discount ?? 0) > 0 ? `
+        <div style="display:flex;justify-content:space-between;padding:10px 16px;background:#fff;border-bottom:1px solid ${BORDER};">
+          <span style="font-size:12px;color:#E67E22;font-weight:600;">Remise globale (${doc.global_discount}%)</span>
+          <span style="font-size:12px;font-weight:700;color:#E67E22;">- ${fmt((doc.total_ht * (doc.global_discount ?? 0)) / 100)} DH</span>
+        </div>
+        ` : ''}
         <div style="display:flex;justify-content:space-between;padding:10px 16px;background:#fff;border-bottom:2px solid ${BLUE_MID};">
           <span style="font-size:12px;color:#666;font-weight:600;">TVA</span>
           <span style="font-size:12px;font-weight:700;color:#222;">${fmt(doc.total_tva ?? 0)} DH</span>
@@ -356,6 +364,7 @@ function generateMasterTemplate(data: PdfInvoiceData): string {
           ${company?.company_rc ? `<div><strong>RC :</strong> ${company.company_rc}</div>` : ''}
           ${company?.company_if ? `<div><strong>IF :</strong> ${company.company_if}</div>` : ''}
           ${company?.company_cnss ? `<div><strong>CNSS :</strong> ${company.company_cnss}</div>` : ''}
+          ${company?.company_patente ? `<div><strong>Patente :</strong> ${company.company_patente}</div>` : ''}
         </div>
         <div style="flex:1;text-align:right;">
           <div style="font-size:9.5px;font-weight:800;color:${BLUE};text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;border-bottom:1px solid ${ACCENT};padding-bottom:3px;">Informations bancaires</div>

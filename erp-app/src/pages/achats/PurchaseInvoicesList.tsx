@@ -1,3 +1,4 @@
+import { fmt } from '../../lib/format'
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { api } from '../../lib/api'
 import Modal from '../../components/ui/Modal'
@@ -5,9 +6,10 @@ import Drawer from '../../components/ui/Drawer'
 import PurchaseInvoiceForm from './PurchaseInvoiceForm'
 import DocumentDetail from '../../components/DocumentDetail'
 import SkeletonRows from '../../components/ui/SkeletonRows'
+import { docRowBg } from '../../lib/rowBg'
 import type { Document, PaginatedResponse } from '../../types'
 
-const fmt = (n: number) => new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n ?? 0)
+// fmt imported from lib/format
 
 const STATUS_CFG: Record<string, { label: string; cls: string }> = {
   draft:     { label: 'Brouillon', cls: 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300' },
@@ -148,7 +150,7 @@ export default function PurchaseInvoicesList() {
                     if ((e.target as HTMLElement).closest('button')) return
                     setSelectedId(doc.id)
                   }}
-                  className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
+                  className={`cursor-pointer transition-colors ${docRowBg(doc.status)}`}>
                   <td className="px-3 py-3 text-center align-middle"><span className="font-mono text-xs font-semibold text-primary">{doc.number}</span></td>
                   <td className="px-3 py-3 text-center align-middle text-gray-500 text-xs">{new Date(doc.date).toLocaleDateString('fr-FR')}</td>
                   <td className="px-3 py-3 text-center align-middle font-medium truncate">{doc.party_name ?? '—'}</td>

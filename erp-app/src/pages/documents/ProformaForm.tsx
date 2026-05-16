@@ -5,8 +5,10 @@ import { z } from 'zod'
 import { api } from '../../lib/api'
 import { toast } from '../../components/ui/Toast'
 import FormField from '../../components/ui/FormField'
+import DateOffsetField from '../../components/ui/DateOffsetField'
 import { PartySelector } from '../../components/ui/PartySelector'
 import { LinesTable, LinesTotals } from '../../components/ui/LinesTable'
+import NumberInput from '../../components/ui/NumberInput'
 import type { Product } from '../../types'
 import DocumentNumberField from '../../components/ui/DocumentNumberField'
 
@@ -20,6 +22,7 @@ const schema = z.object({
   exchange_rate: z.coerce.number().min(0.0001).default(1),
   incoterm:      z.string().optional(),
   port:          z.string().optional(),
+  global_discount: z.coerce.number().min(0).max(100).default(0),
   notes:         z.string().optional(),
   lines: z.array(z.object({
     product_id:  z.number().optional(),
@@ -39,18 +42,28 @@ export default function ProformaForm({ onSaved, onCancel }: Props) {
   const [products, setProducts] = useState<Product[]>([])
   const [customSeq, setCustomSeq] = useState<number | undefined>(undefined)
 
+  /** Retourne une date ISO décalée de `days` jours depuis aujourd'hui */
+  function addDays(days: number): string {
+    const d = new Date()
+    d.setDate(d.getDate() + days)
+    return d.toISOString().split('T')[0]
+  }
+
   const { register, control, handleSubmit, watch, setValue,
     formState: { errors, isSubmitting } } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: {
       date: new Date().toISOString().split('T')[0],
+      validity_date: addDays(30),
       currency: 'MAD', exchange_rate: 1,
+      global_discount: 0,
       lines: [{ quantity: 1, unit_price: 0, discount: 0, tva_rate: 0 }],
     },
   })
 
   const { fields, append, remove } = useFieldArray({ control, name: 'lines' })
   const lines    = watch('lines')
+  const globalDiscount = watch('global_discount') || 0
   const currency = watch('currency')
   const incoterm = watch('incoterm')
 
@@ -68,6 +81,7 @@ export default function ProformaForm({ onSaved, onCancel }: Props) {
           validity_date: data.validity_date,
           currency: data.currency, exchange_rate: data.exchange_rate,
           incoterm: data.incoterm, port: data.port,
+          global_discount: data.global_discount ?? 0,
         },
         created_by: 1,
           ...(customSeq !== undefined ? { custom_seq: customSeq } : {}),
@@ -100,9 +114,14 @@ export default function ProformaForm({ onSaved, onCancel }: Props) {
           onSeqChange={setCustomSeq}
         />
       </FormField>
-        <FormField label="Valide jusqu'au">
-          <input {...register('validity_date')} className="input" type="date" />
-        </FormField>
+        <DateOffsetField
+          label="Valide jusqu'au"
+          storageKey="offset_validity_proforma"
+          defaultDays={30}
+          baseDate={watch('date')}
+          value={watch('validity_date')}
+          onChange={(iso) => setValue('validity_date', iso)}
+        />
       </div>
 
       {/* Devise + Incoterm — spécifique Proforma */}
@@ -114,7 +133,7 @@ export default function ProformaForm({ onSaved, onCancel }: Props) {
         </FormField>
         {currency !== 'MAD' && (
           <FormField label={`Taux (1 ${currency} = ? MAD)`}>
-            <input {...register('exchange_rate')} className="input" type="number" step="0.0001" min="0.0001" />
+            <NumberInput {...register('exchange_rate')} className="input" decimals={4} min="0.0001" />
           </FormField>
         )}
         <FormField label="Incoterm">
@@ -141,6 +160,7 @@ export default function ProformaForm({ onSaved, onCancel }: Props) {
         lines={lines}
         products={products}
         register={register}
+        control={control}
         setValue={setValue}
         onRemove={remove}
         onAdd={() => append({ quantity: 1, unit_price: 0, discount: 0, tva_rate: 0 })}
@@ -150,7 +170,13 @@ export default function ProformaForm({ onSaved, onCancel }: Props) {
         onProductsRefresh={setProducts}
       />
 
-      <LinesTotals lines={lines} currency={currency} />
+      <LinesTotals lines={lines} currency={currency} globalDiscount={globalDiscount} />
+
+      <div className="flex items-center gap-3 justify-end -mt-2">
+        <label className="text-sm text-gray-500 shrink-0">Remise globale (%)</label>
+        <NumberInput {...register('global_discount')} 
+          className="input w-28 text-right" decimals={2} min="0" max="100" placeholder="0" />
+      </div>
 
       <FormField label="Notes / Conditions">
         <textarea {...register('notes')} className="input resize-none" rows={2}

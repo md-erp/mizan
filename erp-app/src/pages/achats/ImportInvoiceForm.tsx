@@ -1,3 +1,5 @@
+import { fmt } from '../../lib/format'
+import NumberInput from '../../components/ui/NumberInput'
 import { useState, useEffect } from 'react'
 import { useForm, useFieldArray } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -45,7 +47,7 @@ interface Props {
   onCancel: () => void
 }
 
-const fmt = (n: number) => new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n ?? 0)
+// fmt imported from lib/format
 
 export default function ImportInvoiceForm({ editDocId, defaultValues, onSaved, onCancel }: Props) {
   const [products, setProducts] = useState<Product[]>([])
@@ -157,12 +159,22 @@ export default function ImportInvoiceForm({ editDocId, defaultValues, onSaved, o
       }
 
       if (isEdit) {
-        // فقط يمكن تعديل المسودات
+        // تحديث المسودة مباشرة
         const current = await api.getDocument(editDocId!) as any
         if (current.status !== 'draft') {
           throw new Error('Impossible de modifier une importation déjà confirmée. Annulez-la d\'abord.')
         }
-        await api.cancelDocument(editDocId!)
+        await api.updateDocument({
+          id: editDocId, date: data.date, party_id: data.party_id, party_type: 'supplier',
+          notes: data.notes, lines: docLines,
+          total_ht: Math.round(totalCost * 100) / 100,
+          total_tva: Math.round((data.tva_import ?? 0) * 100) / 100,
+          total_ttc: Math.round(totalCost * 100) / 100,
+          ...extra,
+        })
+        if (confirm) { await api.confirmDocument(editDocId!); toast('Importation mise à jour et confirmée ✓') }
+        else toast('Brouillon mis à jour ✓')
+        onSaved(); return
       }
 
       const doc = await api.createDocument({
@@ -220,7 +232,7 @@ export default function ImportInvoiceForm({ editDocId, defaultValues, onSaved, o
           </select>
         </FormField>
         <FormField label={`Taux (1 ${currency} = ? MAD)`} error={errors.exchange_rate?.message}>
-          <input {...register('exchange_rate')} className="input" type="number" min="0.0001" step="0.0001" />
+          <NumberInput {...register('exchange_rate')} className="input" decimals={4} min="0.0001" />
         </FormField>
       </div>
 
@@ -230,21 +242,21 @@ export default function ImportInvoiceForm({ editDocId, defaultValues, onSaved, o
         <div className="grid grid-cols-2 gap-3">
           <FormField label={`Montant facture (${currency})`}>
             <div className="flex gap-2 items-center">
-              <input {...register('invoice_amount')} className="input flex-1" type="number" min="0" step="0.01" />
+              <NumberInput {...register('invoice_amount')} className="input flex-1" decimals={2} min="0" />
               <span className="text-xs text-gray-400 shrink-0 whitespace-nowrap">= {fmt(invoiceMAD)} MAD</span>
             </div>
           </FormField>
           <FormField label="Frais de douane (MAD)">
-            <input {...register('customs')} className="input" type="number" min="0" step="0.01" />
+            <NumberInput {...register('customs')} className="input" decimals={2} min="0" />
           </FormField>
           <FormField label="Frais transitaire (MAD)">
-            <input {...register('transitaire')} className="input" type="number" min="0" step="0.01" />
+            <NumberInput {...register('transitaire')} className="input" decimals={2} min="0" />
           </FormField>
           <FormField label="TVA import (MAD)">
-            <input {...register('tva_import')} className="input" type="number" min="0" step="0.01" />
+            <NumberInput {...register('tva_import')} className="input" decimals={2} min="0" />
           </FormField>
           <FormField label="Autres frais (MAD)">
-            <input {...register('other_costs')} className="input" type="number" min="0" step="0.01" />
+            <NumberInput {...register('other_costs')} className="input" decimals={2} min="0" />
           </FormField>
         </div>
         <div className="flex justify-between items-center pt-2 border-t border-gray-200 dark:border-gray-700 font-bold">
@@ -259,6 +271,7 @@ export default function ImportInvoiceForm({ editDocId, defaultValues, onSaved, o
         lines={lines}
         products={products}
         register={register}
+        control={control}
         setValue={setValue}
         onRemove={remove}
         onAdd={() => append({ description: '', quantity: 1, unit_price: 0, discount: 0, tva_rate: 0 })}

@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
 import { api } from '../../lib/api'
 
-// أنواع المستندات التي تستخدم السنة في الرقم
+// أنواع المستندات التي تستخدم السنة في الرقم — الكل الآن يستخدم السنة
 const WITH_YEAR = new Set([
   'invoice', 'quote', 'bl', 'proforma', 'avoir',
   'purchase_order', 'bl_reception', 'purchase_invoice', 'import_invoice',
+  'payment',
 ])
 
 const DOC_PREFIXES: Record<string, string> = {
@@ -26,8 +27,7 @@ interface Props {
 }
 
 function formatNumber(prefix: string, year: number, seq: number, withYear: boolean): string {
-  const padded = String(seq).padStart(4, '0')
-  return withYear ? `${prefix}-${year}-${padded}` : `${prefix}-${padded}`
+  return withYear ? `${prefix}-${year}-${seq}` : `${prefix}-${seq}`
 }
 
 export default function DocumentNumberField({ docType, onSeqChange }: Props) {
@@ -41,6 +41,7 @@ export default function DocumentNumberField({ docType, onSeqChange }: Props) {
   const [checkError, setCheckError] = useState('')
   const [loading, setLoading]       = useState(true)
   const [error, setError]           = useState('')
+  const [recycledNum, setRecycledNum] = useState<string | null>(null)
   // نستخدم ref لتجنب infinite loop في useEffect
   const onSeqChangeRef = useRef(onSeqChange)
   onSeqChangeRef.current = onSeqChange
@@ -67,6 +68,11 @@ export default function DocumentNumberField({ docType, onSeqChange }: Props) {
         onSeqChangeRef.current(undefined)
       })
       .finally(() => setLoading(false))
+
+    // جلب الرقم المعاد تدويره إن وجد
+    ;(api as any).sequencesGetRecycled(docType)
+      .then((r: string | null) => setRecycledNum(r))
+      .catch(() => setRecycledNum(null))
   }, [docType])
 
   const displaySeq = customSeq ?? nextSeq
@@ -92,8 +98,8 @@ export default function DocumentNumberField({ docType, onSeqChange }: Props) {
         setCheckError(
           `Numéro déjà utilisé — prochain disponible: ${
             useYear
-              ? `${prefix}-${year}-${String(result.suggestion).padStart(4, '0')}`
-              : `${prefix}-${String(result.suggestion).padStart(4, '0')}`
+              ? `${prefix}-${year}-${result.suggestion}`
+              : `${prefix}-${result.suggestion}`
           }`
         )
         return // لا نغلق الـ editing — المستخدم يرى الخطأ
@@ -118,6 +124,17 @@ export default function DocumentNumberField({ docType, onSeqChange }: Props) {
     setEditing(false)
   }
 
+  function handleUseRecycled() {
+    if (!recycledNum) return
+    // استخراج الرقم من النص مثل F-26-3 → 3
+    const parts = recycledNum.split('-')
+    const seq = parseInt(parts[parts.length - 1])
+    if (isNaN(seq)) return
+    setCustomSeq(seq)
+    onSeqChangeRef.current(seq)
+    setRecycledNum(null)
+  }
+
   if (loading) {
     return (
       <div className="flex items-center gap-2">
@@ -139,7 +156,7 @@ export default function DocumentNumberField({ docType, onSeqChange }: Props) {
           {useYear ? `${prefix}-${year}-` : `${prefix}-`}
         </span>
         <span className={`font-bold tabular-nums ${customSeq !== undefined ? 'text-primary' : 'text-gray-700 dark:text-gray-200'}`}>
-          {String(displaySeq).padStart(4, '0')}
+          {displaySeq}
         </span>
         {customSeq !== undefined && (
           <span className="ml-1.5 text-[10px] text-primary bg-primary/10 px-1.5 py-0.5 rounded font-sans">
@@ -157,6 +174,18 @@ export default function DocumentNumberField({ docType, onSeqChange }: Props) {
           title="Changer le numéro de départ"
         >
           ✏️ Modifier
+        </button>
+      )}
+
+      {/* زر إعادة التدوير — يظهر فقط إذا كان هناك رقم متاح */}
+      {!editing && recycledNum && (
+        <button
+          type="button"
+          onClick={handleUseRecycled}
+          className="text-xs text-amber-600 hover:text-amber-700 dark:text-amber-400 transition-colors px-2 py-1.5 rounded-lg hover:bg-amber-50 dark:hover:bg-amber-900/20 whitespace-nowrap border border-amber-200 dark:border-amber-700"
+          title={`Réutiliser le numéro supprimé: ${recycledNum}`}
+        >
+          ♻️ {recycledNum}
         </button>
       )}
 

@@ -1,9 +1,10 @@
+import { fmt } from '../../lib/format'
 import React, { useEffect, useState, useCallback } from 'react'
 import { api } from '../../lib/api'
+import { toast } from '../../components/ui/Toast'
 import Modal from '../../components/ui/Modal'
+import ConfirmDialog from '../../components/ui/ConfirmDialog'
 import TransformationForm from './TransformationForm'
-
-const fmt = (n: number) => new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n ?? 0)
 
 export default function TransformationList() {
 
@@ -11,6 +12,10 @@ export default function TransformationList() {
   const [loading, setLoading]     = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
   const [expanded, setExpanded]   = useState<Set<number>>(new Set())
+  const [search, setSearch]       = useState('')
+  const [page, setPage]           = useState(1)
+  const [cancelId, setCancelId]   = useState<number | null>(null)
+  const PAGE_SIZE = 50
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -37,6 +42,20 @@ export default function TransformationList() {
   const totalCostAll = rows.reduce((s, r) => s + (r.total_cost ?? 0), 0)
   const totalOutputs = rows.reduce((s, r) => s + (r.outputs?.length ?? 0), 0)
 
+  const filtered = search
+    ? rows.filter(r => r.material_name?.toLowerCase().includes(search.toLowerCase()) ||
+        r.outputs?.some((o: any) => o.product_name?.toLowerCase().includes(search.toLowerCase())))
+    : rows
+  const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+
+  async function handleCancel(_id: number) {
+    try {
+      // التحويلات لا تملك cancelDocument — نستخدم حذف مباشر إذا لم تُطبَّق
+      toast('Annulation non disponible pour les transformations confirmées', 'warning')
+    } catch (e: any) { toast(e.message, 'error') }
+    finally { setCancelId(null) }
+  }
+
   return (
     <div className="h-full flex flex-col gap-3 overflow-hidden">
 
@@ -47,8 +66,10 @@ export default function TransformationList() {
           + Nouvelle Transformation
         </button>
         <div className="ml-auto flex items-center gap-2">
+          <input value={search} onChange={e => { setSearch(e.target.value); setPage(1) }}
+            className="input text-sm max-w-xs" placeholder="Rechercher matière ou produit..." />
           <button onClick={load} className="btn-secondary btn-sm">↻</button>
-          <span className="text-sm text-gray-500">{rows.length} transformation(s)</span>
+          <span className="text-sm text-gray-500">{filtered.length} transformation(s)</span>
         </div>
       </div>
 
@@ -104,7 +125,7 @@ export default function TransformationList() {
               </td></tr>
             )}
 
-            {!loading && rows.map(r => {
+            {!loading && paginated.map(r => {
               const isOpen  = expanded.has(r.id)
               const outputs = r.outputs ?? []
 
@@ -228,6 +249,23 @@ export default function TransformationList() {
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Nouvelle Transformation" size="lg">
         <TransformationForm onSaved={() => { setModalOpen(false); load() }} onCancel={() => setModalOpen(false)} />
       </Modal>
+
+      {filtered.length > PAGE_SIZE && (
+        <div className="flex items-center justify-center gap-2 shrink-0">
+          <button disabled={page === 1} onClick={() => setPage(p => p - 1)} className="btn-secondary btn-sm disabled:opacity-40">←</button>
+          <span className="text-xs text-gray-500">{page}/{Math.ceil(filtered.length / PAGE_SIZE)}</span>
+          <button disabled={page >= Math.ceil(filtered.length / PAGE_SIZE)} onClick={() => setPage(p => p + 1)} className="btn-secondary btn-sm disabled:opacity-40">→</button>
+        </div>
+      )}
+
+      <ConfirmDialog
+        open={cancelId !== null}
+        title="Annuler cette transformation ?"
+        message="Cette opération est irréversible."
+        confirmLabel="Annuler" danger
+        onConfirm={() => cancelId && handleCancel(cancelId)}
+        onCancel={() => setCancelId(null)}
+      />
     </div>
   )
 }

@@ -2,9 +2,12 @@ import Database from 'better-sqlite3'
 
 export type AuditAction =
   | 'CREATE' | 'UPDATE' | 'DELETE'
-  | 'CONFIRM' | 'CANCEL'
+  | 'CONFIRM' | 'CANCEL' | 'RESTORE'
   | 'LOGIN' | 'LOGOUT'
   | 'PAYMENT' | 'APPLY_STOCK'
+  | 'DELETE_JOURNAL_ENTRY'
+  | 'SMART_EDIT_AVOIR' | 'SMART_EDIT_CANCEL' | 'SMART_EDIT_CREATE'
+  | 'UPDATE_SAFE_FIELDS'
 
 export interface AuditEntry {
   user_id: number

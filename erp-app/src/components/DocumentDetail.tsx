@@ -1,3 +1,4 @@
+import { fmt } from '../lib/format'
 import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
 import { toast } from './ui/Toast'
@@ -6,9 +7,6 @@ import PaymentForm from './forms/PaymentForm'
 import AttachmentsPanel from './AttachmentsPanel'
 import AvoirForm from '../pages/documents/AvoirForm'
 import InvoiceForm from './forms/InvoiceForm'
-import QuoteForm from '../pages/documents/QuoteForm'
-import ProformaForm from '../pages/documents/ProformaForm'
-import BLForm from '../pages/documents/BLForm'
 import PurchaseOrderForm from '../pages/achats/PurchaseOrderForm'
 import PurchaseInvoiceForm from '../pages/achats/PurchaseInvoiceForm'
 import ImportInvoiceForm from '../pages/achats/ImportInvoiceForm'
@@ -88,6 +86,12 @@ function EditInvoiceWrapper({ doc, onSaved, onCancel }: {
 
   useEffect(() => {
     api.getDocument(doc.id).then((fullDoc: any) => {
+      console.log('🔍 [EditInvoiceWrapper] fullDoc loaded:', {
+        id: fullDoc.id,
+        global_discount: fullDoc.global_discount,
+        currency: fullDoc.currency,
+      })
+      
       setInitialData({
         docId: fullDoc.id,
         date: fullDoc.date,
@@ -97,6 +101,7 @@ function EditInvoiceWrapper({ doc, onSaved, onCancel }: {
         payment_method: fullDoc.payment_method ?? 'cash',
         currency: fullDoc.currency ?? 'MAD',
         exchange_rate: fullDoc.exchange_rate ?? 1,
+        global_discount: fullDoc.global_discount ?? 0,  // ✅ FIX: إضافة global_discount
         lines: (fullDoc.lines ?? []).map((l: any) => ({
           product_id: l.product_id,
           description: l.description ?? '',
@@ -242,6 +247,7 @@ function EditPurchaseInvoiceWrapper({ doc, onSaved, onCancel }: {
         notes: fullDoc.notes,
         due_date: fullDoc.due_date ?? '',
         payment_method: fullDoc.payment_method ?? 'bank',
+        global_discount: fullDoc.global_discount ?? 0,  // ✅ FIX: إضافة global_discount
         lines: (fullDoc.lines ?? []).map((l: any) => ({
           product_id: l.product_id,
           description: l.description ?? '',
@@ -327,7 +333,7 @@ function DocumentTimeline({ docId }: { docId: number }) {
 // PO Receipt Summary
 function POReceiptSummary({ docId }: { docId: number }) {
   const [status, setStatus] = useState<any>(null)
-  const fmt = (n: number) => new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n ?? 0)
+  // fmt imported from lib/format
 
   useEffect(() => {
     api.getPOReceiptStatus(docId)
@@ -380,7 +386,7 @@ function POReceiptSummary({ docId }: { docId: number }) {
 // ── Invoice Delivery Summary ─────────────────────────────────────────────────
 function InvoiceDeliverySummary({ docId }: { docId: number }) {
   const [status, setStatus] = useState<any>(null)
-  const fmt = (n: number) => new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n ?? 0)
+  // fmt imported from lib/format
 
   useEffect(() => {
     api.getBLDeliveryStatus(docId)
@@ -440,7 +446,7 @@ function PartialDeliveryModal({ doc, onSaved, onCancel }: {
   const [quantities, setQuantities] = useState<Record<number, number>>({})
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
-  const fmt = (n: number) => new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n ?? 0)
+  // fmt imported from lib/format
 
   useEffect(() => {
     api.getBLDeliveryStatus(doc.id)
@@ -555,7 +561,7 @@ function PartialReceptionModal({ doc, onSaved, onCancel }: {
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
 
-  const fmt = (n: number) => new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n ?? 0)
+  // fmt imported from lib/format
 
   useEffect(() => {
     api.getPOReceiptStatus(doc.id)
@@ -669,7 +675,96 @@ function PartialReceptionModal({ doc, onSaved, onCancel }: {
   )
 }
 
-export default function DocumentDetail({ docId, onUpdated }: Omit<Props, 'onClose'> & { onClose?: () => void }) {
+// ── Edit Safe Fields Modal ──────────────────────────────────────────────────
+function EditSafeFieldsModal({ doc, onSaved, onCancel }: {
+  doc: Document
+  onSaved: () => void
+  onCancel: () => void
+}) {
+  const [notes, setNotes] = useState(doc.notes ?? '')
+  const [dueDate, setDueDate] = useState((doc as any).due_date ?? '')
+  const [deliveryAddress, setDeliveryAddress] = useState((doc as any).delivery_address ?? '')
+  const [submitting, setSubmitting] = useState(false)
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setSubmitting(true)
+    try {
+      await api.updateSafeFields({
+        id: doc.id,
+        notes,
+        due_date: dueDate || undefined,
+        delivery_address: deliveryAddress || undefined,
+        userId: 1,
+      })
+      toast('✅ Champs mis à jour')
+      onSaved()
+    } catch (err: any) {
+      toast(err.message, 'error')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg px-4 py-3 text-sm text-blue-700 dark:text-blue-400">
+        ℹ️ Ces champs peuvent être modifiés sans affecter la comptabilité ou le stock
+      </div>
+
+      {/* Notes */}
+      <div>
+        <label className="label">Notes</label>
+        <textarea
+          value={notes}
+          onChange={e => setNotes(e.target.value)}
+          className="input"
+          rows={3}
+          placeholder="Remarques, conditions particulières..."
+        />
+      </div>
+
+      {/* Due Date (pour factures uniquement) */}
+      {['invoice', 'purchase_invoice'].includes(doc.type) && (
+        <div>
+          <label className="label">Date d'échéance</label>
+          <input
+            type="date"
+            value={dueDate}
+            onChange={e => setDueDate(e.target.value)}
+            className="input"
+          />
+        </div>
+      )}
+
+      {/* Delivery Address (pour BL uniquement) */}
+      {doc.type === 'bl' && (
+        <div>
+          <label className="label">Adresse de livraison</label>
+          <textarea
+            value={deliveryAddress}
+            onChange={e => setDeliveryAddress(e.target.value)}
+            className="input"
+            rows={2}
+            placeholder="Adresse complète de livraison..."
+          />
+        </div>
+      )}
+
+      <div className="flex gap-3 pt-2 border-t border-gray-100 dark:border-gray-700">
+        <button type="button" onClick={onCancel} className="btn-secondary">
+          Annuler
+        </button>
+        <button type="submit" disabled={submitting} className="btn-primary flex-1 justify-center">
+          {submitting ? '...' : '💾 Enregistrer'}
+        </button>
+      </div>
+    </form>
+  )
+}
+
+export default function DocumentDetail({ docId, onUpdated, onClose }: Omit<Props, 'onClose'> & { onClose?: () => void }) {
+  const [currentDocId, setCurrentDocId] = useState(docId)
   const [doc, setDoc] = useState<Document | null>(null)
   const [loading, setLoading] = useState(true)
   const [paymentModal, setPaymentModal] = useState(false)
@@ -677,6 +772,10 @@ export default function DocumentDetail({ docId, onUpdated }: Omit<Props, 'onClos
   const [printPreview, setPrintPreview] = useState<{ html: string; number: string } | null>(null)
   const [totalPaid, setTotalPaid] = useState(0)
   const [cancelConfirm, setCancelConfirm] = useState(false)
+  const [cancelImpact, setCancelImpact] = useState<any | null>(null)
+  const [cancelImpactLoading, setCancelImpactLoading] = useState(false)
+  const [cancelReason, setCancelReason] = useState('')
+  const [deleteConfirm, setDeleteConfirm] = useState(false)
   const [linkedDocId, setLinkedDocId] = useState<number | null>(null)
   const [avoirModal, setAvoirModal] = useState(false)
   const [stockConfirm, setStockConfirm] = useState(false)
@@ -684,27 +783,33 @@ export default function DocumentDetail({ docId, onUpdated }: Omit<Props, 'onClos
   const [receptionModal, setReceptionModal] = useState(false)
   const [deliveryModal, setDeliveryModal] = useState(false)
   const [converting, setConverting] = useState(false)
+  const [smartEditConfirm, setSmartEditConfirm] = useState(false)
+  const [smartEditing, setSmartEditing] = useState(false)
+  const [editSafeFieldsModal, setEditSafeFieldsModal] = useState(false)
 
-  const fmt = (n: number) => new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n)
+  // fmt imported from lib/format
 
-  async function load(currentDocId = docId) {
+  async function load(loadDocId = currentDocId) {
     setLoading(true)
     try {
-      const result = await api.getDocument(currentDocId) as unknown as Document
+      const result = await api.getDocument(loadDocId) as unknown as Document
       // تجاهل النتيجة إذا تغير docId أثناء الطلب
-      if (currentDocId !== docId) return
+      if (loadDocId !== currentDocId) return
       setDoc(result)
-      const paidData = await api.getPaymentPaidAmount(currentDocId) as any
-      if (currentDocId !== docId) return
+      const paidData = await api.getPaymentPaidAmount(loadDocId) as any
+      if (loadDocId !== currentDocId) return
       setTotalPaid(paidData?.total ?? 0)
     } catch {
-      if (currentDocId === docId) setDoc(null)
+      if (loadDocId === currentDocId) setDoc(null)
     } finally {
-      if (currentDocId === docId) setLoading(false)
+      if (loadDocId === currentDocId) setLoading(false)
     }
   }
 
-  useEffect(() => { load(docId) }, [docId])
+  useEffect(() => { 
+    setCurrentDocId(docId)
+    load(docId) 
+  }, [docId])
 
   // المستندات التي تولد حركات مخزون
   const STOCK_DOC_TYPES = ['bl', 'bl_reception', 'avoir']
@@ -741,15 +846,62 @@ export default function DocumentDetail({ docId, onUpdated }: Omit<Props, 'onClos
   }
 
   async function handleCancel() {
+    // أولاً: جلب تأثير الإلغاء
+    setCancelImpactLoading(true)
     try {
-      await api.cancelDocument(docId)
-      toast('Document annulé', 'warning')
+      const impact = await api.getCancelImpact(docId) as any
+      setCancelImpact(impact)
+      setCancelConfirm(true)
+    } catch (e: any) {
+      // إذا فشل جلب التأثير، نعرض dialog بسيط
+      setCancelImpact(null)
+      setCancelConfirm(true)
+    } finally {
+      setCancelImpactLoading(false)
+    }
+  }
+
+  async function doCancel() {
+    try {
+      const hasStock = cancelImpact?.impacts?.some((i: any) => i.key === 'reverse_stock')
+      
+      if (hasStock) {
+        await api.cancelWithOptions({
+          id: docId,
+          options: { reverse_stock: true, reverse_accounting: false, cancel_payments: false },
+          userId: 1,
+          reason: cancelReason || undefined,
+        }) as any
+        toast('✅ Document annulé — Stock inversé automatiquement', 'warning')
+      } else {
+        const result = await api.cancelDocument(docId) as any
+        if (result?.cancelled && result?.avoirNumber) {
+          toast(`✅ Document annulé — Avoir ${result.avoirNumber} créé automatiquement`, 'success')
+        } else {
+          toast('Document annulé', 'warning')
+        }
+      }
       load()
       onUpdated()
     } catch (e: any) {
       toast(e.message, 'error')
     } finally {
       setCancelConfirm(false)
+      setCancelImpact(null)
+      setCancelReason('')
+    }
+  }
+
+  async function handleDeleteDraft() {
+    try {
+      await api.deleteDraft(docId)
+      toast('Brouillon supprimé définitivement', 'warning')
+      onUpdated()
+      onClose?.()
+    } catch (e: any) {
+      toast(e.message, 'error')
+    } finally {
+      setDeleteConfirm(false)
     }
   }
 
@@ -770,6 +922,41 @@ export default function DocumentDetail({ docId, onUpdated }: Omit<Props, 'onClos
       if (result?.path) toast('✅ PDF enregistré: ' + result.path.split('/').pop())
     } catch (e: any) {
       toast(e.message, 'error')
+    }
+  }
+
+  async function handleSmartEdit() {
+    setSmartEditing(true)
+    try {
+      const result = await api.smartEditDocument({ id: currentDocId, userId: 1 }) as any
+      if (result.warning) {
+        toast(result.warning, 'warning')
+      }
+      toast(`✅ Document modifiable créé: ${result.newDocNumber}`)
+      
+      // ✅ تحديث currentDocId أولاً
+      setCurrentDocId(result.newDocId)
+      
+      // ✅ تحميل بيانات الفاتورة الجديدة وانتظار اكتمال التحميل
+      setLoading(true)
+      try {
+        const newDoc = await api.getDocument(result.newDocId) as unknown as Document
+        setDoc(newDoc)
+        const paidData = await api.getPaymentPaidAmount(result.newDocId) as any
+        setTotalPaid(paidData?.total ?? 0)
+      } finally {
+        setLoading(false)
+      }
+      
+      // ✅ فتح Modal بعد التأكد من تحميل البيانات
+      setEditModal(true)
+      
+      onUpdated()
+    } catch (e: any) {
+      toast(e.message, 'error')
+    } finally {
+      setSmartEditing(false)
+      setSmartEditConfirm(false)
     }
   }
 
@@ -814,9 +1001,14 @@ export default function DocumentDetail({ docId, onUpdated }: Omit<Props, 'onClos
   return (
     <div className="p-6 space-y-5">
       {/* Header info */}
-      <div className="flex items-start justify-between">
-        <div>
-          <div className="text-xl font-bold font-mono text-primary">{doc.number}</div>
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex-1">
+          <div className="flex items-center gap-3">
+            <div className="text-xl font-bold font-mono text-primary">{doc.number}</div>
+            <span className={STATUS_BADGE[doc.status] ?? 'badge-gray'}>
+              {STATUS_LABEL[doc.status] ?? doc.status}
+            </span>
+          </div>
           <div className="text-sm text-gray-500 mt-1">
             {new Date(doc.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}
           </div>
@@ -832,9 +1024,104 @@ export default function DocumentDetail({ docId, onUpdated }: Omit<Props, 'onClos
             </div>
           )}
         </div>
-        <span className={STATUS_BADGE[doc.status] ?? 'badge-gray'}>
-          {STATUS_LABEL[doc.status] ?? doc.status}
-        </span>
+        
+        {/* الأزرار الأساسية في الأعلى */}
+        <div className="flex items-center gap-2">
+          {/* زر الطباعة — متاح لجميع الحالات بما فيها المسودات */}
+          <button onClick={handlePreview} className={`px-4 py-2 rounded-lg font-medium transition-colors shadow-sm flex items-center gap-2 shrink-0 ${
+            doc.status === 'draft'
+              ? 'bg-slate-500 hover:bg-slate-400 text-white border border-dashed border-slate-400'
+              : 'bg-slate-700 hover:bg-slate-600 text-white'
+          }`}>
+            📄 {doc.status === 'draft' ? 'Aperçu' : 'PDF'}
+          </button>
+          
+          {/* ✅ FIX: أزرار التعديل والتأكيد في الأعلى للمسودات */}
+          {doc.status === 'draft' && (
+            <>
+              <button onClick={() => setEditModal(true)} className="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 font-medium transition-colors shadow-sm flex items-center gap-2 shrink-0">
+                ✏️ Modifier
+              </button>
+              <button onClick={handleConfirm} className="px-4 py-2 rounded-lg bg-green-600 hover:bg-green-500 text-white font-medium transition-colors shadow-sm flex items-center gap-2 shrink-0">
+                ✅ Confirmer
+              </button>
+            </>
+          )}
+          
+          {/* زر إضافة دفعة */}
+          {['invoice', 'purchase_invoice', 'import_invoice'].includes(doc.type) && 
+           ['confirmed', 'partial', 'delivered'].includes(doc.status) && 
+           doc.party_id && (
+            <button onClick={() => setPaymentModal(true)} className="px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-medium transition-colors shadow-sm flex items-center gap-2 shrink-0">
+              💰 Paiement
+            </button>
+          )}
+          
+          {/* زر BL Partiel */}
+          {doc.type === 'invoice' && ['confirmed', 'partial', 'paid'].includes(doc.status) && (
+            <button onClick={() => setDeliveryModal(true)} className="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-medium transition-colors shadow-sm flex items-center gap-2 shrink-0">
+              🚚 BL
+            </button>
+          )}
+          
+          {/* زر BR Partiel */}
+          {doc.type === 'purchase_order' && ['confirmed', 'partial', 'received'].includes(doc.status) && (
+            <button onClick={() => setReceptionModal(true)} className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium transition-colors shadow-sm flex items-center gap-2 shrink-0">
+              📥 BR
+            </button>
+          )}
+          
+          {/* زر تحويل Devis → Facture */}
+          {doc.type === 'quote' && doc.status === 'confirmed' && (
+            <button disabled={converting} onClick={async () => {
+              if (converting) return
+              setConverting(true)
+              try {
+                await api.convertDocument({ sourceId: doc.id, targetType: 'invoice', extra: { payment_method: 'cash' } })
+                toast('Converti en facture'); load(); onUpdated()
+              } catch (e: any) { toast(e.message, 'error') }
+              finally { setConverting(false) }
+            }} className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium transition-colors shadow-sm flex items-center gap-2 shrink-0 disabled:opacity-50 disabled:cursor-not-allowed">
+              📄 Facture
+            </button>
+          )}
+          
+          {/* زر تحويل Proforma → Facture */}
+          {doc.type === 'proforma' && doc.status === 'confirmed' && (
+            <button disabled={converting} onClick={async () => {
+              if (converting) return
+              setConverting(true)
+              try {
+                await api.convertDocument({ sourceId: doc.id, targetType: 'invoice', extra: { payment_method: 'cash' } })
+                toast('Proforma convertie en facture'); load(); onUpdated()
+              } catch (e: any) { toast(e.message, 'error') }
+              finally { setConverting(false) }
+            }} className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium transition-colors shadow-sm flex items-center gap-2 shrink-0 disabled:opacity-50 disabled:cursor-not-allowed">
+              🧾 Facture
+            </button>
+          )}
+          
+          {/* زر تحويل Import → BR */}
+          {doc.type === 'import_invoice' && doc.status === 'confirmed' && (
+            <button disabled={converting} onClick={async () => {
+              if (converting) return
+              const existingBR = (doc.links ?? []).find((l: any) => l.related_type === 'bl_reception' && l.related_status !== 'cancelled')
+              if (existingBR) {
+                toast('Un bon de réception existe déjà pour cette importation', 'error')
+                return
+              }
+              setConverting(true)
+              try {
+                const result = await api.convertDocument({ sourceId: doc.id, targetType: 'bl_reception', extra: {} }) as any
+                await api.confirmDocument(result.id)
+                toast('Bon de réception créé — Stock en attente ⏳'); load(); onUpdated()
+              } catch (e: any) { toast(e.message, 'error') }
+              finally { setConverting(false) }
+            }} className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium transition-colors shadow-sm flex items-center gap-2 shrink-0 disabled:opacity-50 disabled:cursor-not-allowed">
+              📥 BR
+            </button>
+          )}
+        </div>
       </div>
       {/* Due date banner */}
       <DueDateBanner doc={doc} />
@@ -859,6 +1146,7 @@ export default function DocumentDetail({ docId, onUpdated }: Omit<Props, 'onClos
                   <th className="px-3 py-2 text-left font-medium text-gray-500">Désignation</th>
                   <th className="px-3 py-2 text-right font-medium text-gray-500">Qté</th>
                   <th className="px-3 py-2 text-right font-medium text-gray-500">Prix HT</th>
+                  <th className="px-3 py-2 text-right font-medium text-gray-500">Remise</th>
                   <th className="px-3 py-2 text-right font-medium text-gray-500">TVA</th>
                   <th className="px-3 py-2 text-right font-medium text-gray-500">TTC</th>
                 </tr>
@@ -872,6 +1160,7 @@ export default function DocumentDetail({ docId, onUpdated }: Omit<Props, 'onClos
                     </td>
                     <td className="px-3 py-2 text-right">{line.quantity} {line.unit}</td>
                     <td className="px-3 py-2 text-right">{fmt(line.unit_price)}</td>
+                    <td className="px-3 py-2 text-right text-orange-600 font-medium">{line.discount ? `${Math.round(line.discount)}%` : '—'}</td>
                     <td className="px-3 py-2 text-right text-gray-500">{line.tva_rate}%</td>
                     <td className="px-3 py-2 text-right font-semibold">{fmt(line.total_ttc)}</td>
                   </tr>
@@ -888,6 +1177,13 @@ export default function DocumentDetail({ docId, onUpdated }: Omit<Props, 'onClos
           <div className="flex justify-between text-gray-500">
             <span>Total HT</span><span>{fmt(doc.total_ht)} MAD</span>
           </div>
+          {/* ✅ عرض الخصم العام فقط (وليس الخصومات الفردية) */}
+          {(doc.global_discount ?? 0) > 0 && (
+            <div className="flex justify-between text-orange-600 font-medium text-xs">
+              <span>Remise globale ({doc.global_discount}%)</span>
+              <span>- {fmt((doc.total_ht * (doc.global_discount ?? 0)) / 100)} MAD</span>
+            </div>
+          )}
           <div className="flex justify-between text-gray-500">
             <span>TVA</span><span>{fmt(doc.total_tva)} MAD</span>
           </div>
@@ -983,76 +1279,47 @@ export default function DocumentDetail({ docId, onUpdated }: Omit<Props, 'onClos
       {/* Pièces jointes */}
       <AttachmentsPanel entityType="document" entityId={doc.id} />
 
-      {/* Actions */}
-      <div className="flex items-center gap-2 pt-2 border-t border-gray-100 dark:border-gray-700 flex-wrap">
-        {/* أزرار الحالة */}
-        {doc.status === 'draft' && (
-          <button onClick={() => setEditModal(true)} className="btn-secondary btn-sm">✏️ Modifier</button>
-        )}
-        {doc.status === 'draft' && (
-          <button onClick={handleConfirm} className="btn-primary btn-sm">✅ Confirmer</button>
-        )}
-        {doc.type === 'quote' && doc.status === 'confirmed' && (
-          <button disabled={converting} onClick={async () => {
-            if (converting) return
-            setConverting(true)
-            try {
-              await api.convertDocument({ sourceId: doc.id, targetType: 'invoice', extra: { payment_method: 'cash' } })
-              toast('Converti en facture'); load(); onUpdated()
-            } catch (e: any) { toast(e.message, 'error') }
-            finally { setConverting(false) }
-          }} className="btn-secondary btn-sm disabled:opacity-50">📄 → Facture</button>
-        )}
-        {doc.type === 'proforma' && doc.status === 'confirmed' && (
-          <button disabled={converting} onClick={async () => {
-            if (converting) return
-            setConverting(true)
-            try {
-              await api.convertDocument({ sourceId: doc.id, targetType: 'invoice', extra: { payment_method: 'cash' } })
-              toast('Proforma convertie en facture'); load(); onUpdated()
-            } catch (e: any) { toast(e.message, 'error') }
-            finally { setConverting(false) }
-          }} className="btn-secondary btn-sm disabled:opacity-50">🧾 → Facture</button>
-        )}
-        {doc.type === 'purchase_order' && ['confirmed', 'partial', 'received'].includes(doc.status) && (
-          <button onClick={() => setReceptionModal(true)} className="btn-secondary btn-sm">📥 → Bon de Réception</button>
-        )}
-        {doc.type === 'import_invoice' && doc.status === 'confirmed' && (
-          <button disabled={converting} onClick={async () => {
-            if (converting) return
-            // التحقق من عدم وجود BR مسبق
-            const existingBR = (doc.links ?? []).find((l: any) => l.related_type === 'bl_reception' && l.related_status !== 'cancelled')
-            if (existingBR) {
-              toast('Un bon de réception existe déjà pour cette importation', 'error')
-              return
-            }
-            setConverting(true)
-            try {
-              const result = await api.convertDocument({ sourceId: doc.id, targetType: 'bl_reception', extra: {} }) as any
-              await api.confirmDocument(result.id)
-              toast('Bon de réception créé — Stock en attente ⏳'); load(); onUpdated()
-            } catch (e: any) { toast(e.message, 'error') }
-            finally { setConverting(false) }
-          }} className="btn-secondary btn-sm disabled:opacity-50">📥 → Bon de Réception</button>
-        )}
+      {/* ═══════════════════════════════════════════════════════════════════ */}
+      {/* ACTIONS PRINCIPALES — في الأسفل بتنسيق جميل */}
+      {/* ═══════════════════════════════════════════════════════════════════ */}
+      <div className="flex flex-wrap items-center gap-3 pt-5 border-t-2 border-gray-200 dark:border-gray-700">
+        {/* Avoir */}
         {doc.type === 'invoice' && ['confirmed', 'partial', 'delivered'].includes(doc.status) && (
-          <button onClick={() => setAvoirModal(true)} className="btn-secondary btn-sm">↩️ Avoir</button>
-        )}
-        {doc.type === 'invoice' && ['confirmed', 'partial', 'paid'].includes(doc.status) && (
-          <button onClick={() => setDeliveryModal(true)} className="btn-secondary btn-sm">🚚 → BL Partiel</button>
-        )}
-        {['invoice', 'purchase_invoice', 'import_invoice'].includes(doc.type) && ['confirmed', 'partial', 'delivered'].includes(doc.status) && doc.party_id && (
-          <button onClick={() => setPaymentModal(true)} className="btn-primary btn-sm">
-            💰 Paiement
+          <button onClick={() => setAvoirModal(true)} className="px-4 py-2 rounded-lg bg-orange-100 hover:bg-orange-200 dark:bg-orange-900/30 dark:hover:bg-orange-900/50 text-orange-700 dark:text-orange-300 font-medium transition-colors border border-orange-300 dark:border-orange-700">
+            🧾 Créer Avoir
           </button>
         )}
-        {/* séparateur */}
-        <div className="flex-1" />
-        {/* actions secondaires */}
-        {!['cancelled', 'paid'].includes(doc.status) && (
-          <button onClick={() => setCancelConfirm(true)} className="btn-secondary btn-sm text-red-500">🚫 Annuler</button>
+        
+        {/* Smart Edit */}
+        {doc.status === 'confirmed' && !['avoir', 'credit_note'].includes(doc.type) && (
+          <button onClick={() => setSmartEditConfirm(true)} className="px-4 py-2 rounded-lg bg-blue-50 hover:bg-blue-100 dark:bg-blue-900/20 dark:hover:bg-blue-900/40 text-blue-700 dark:text-blue-300 font-medium transition-colors border border-blue-200 dark:border-blue-800">
+            ✏️ Modifier (Smart)
+          </button>
         )}
-        <button onClick={handlePreview} className="btn-secondary btn-sm">🖨️ PDF</button>
+        
+        {/* Edit Safe Fields */}
+        {['confirmed', 'partial', 'paid', 'delivered'].includes(doc.status) && (
+          <button onClick={() => setEditSafeFieldsModal(true)} className="px-4 py-2 rounded-lg bg-gray-50 hover:bg-gray-100 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 font-medium transition-colors border border-gray-200 dark:border-gray-600">
+            📝 Notes / Échéance
+          </button>
+        )}
+        
+        {/* Spacer */}
+        <div className="flex-1" />
+        
+        {/* Delete Draft (far right) */}
+        {doc.status === 'draft' && (
+          <button onClick={() => setDeleteConfirm(true)} className="px-4 py-2 rounded-lg bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/40 text-red-600 dark:text-red-400 font-medium transition-colors border border-red-200 dark:border-red-800">
+            🗑️ Supprimer
+          </button>
+        )}
+        
+        {/* Cancel (far right) */}
+        {!['cancelled', 'paid', 'draft'].includes(doc.status) && (
+          <button onClick={handleCancel} disabled={cancelImpactLoading} className="px-4 py-2 rounded-lg bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/40 text-red-600 dark:text-red-400 font-medium transition-colors border border-red-200 dark:border-red-800 disabled:opacity-50">
+            {cancelImpactLoading ? '⏳' : '🚫'} Annuler
+          </button>
+        )}
       </div>
 
       {/* Payment Modal */}
@@ -1080,15 +1347,16 @@ export default function DocumentDetail({ docId, onUpdated }: Omit<Props, 'onClos
       {editModal && (
         <Modal open onClose={() => setEditModal(false)}
           title={`Modifier ${doc.number}`}
-          size="xl">
+          size="xl"
+          key={`edit-modal-${doc.id}`}>
           {doc.type === 'purchase_order' ? (
-            <EditPurchaseOrderWrapper doc={doc} onSaved={() => { setEditModal(false); load(); onUpdated() }} onCancel={() => setEditModal(false)} />
+            <EditPurchaseOrderWrapper key={`edit-po-${doc.id}`} doc={doc} onSaved={() => { setEditModal(false); load(); onUpdated() }} onCancel={() => setEditModal(false)} />
           ) : doc.type === 'purchase_invoice' ? (
-            <EditPurchaseInvoiceWrapper doc={doc} onSaved={() => { setEditModal(false); load(); onUpdated() }} onCancel={() => setEditModal(false)} />
+            <EditPurchaseInvoiceWrapper key={`edit-pi-${doc.id}`} doc={doc} onSaved={() => { setEditModal(false); load(); onUpdated() }} onCancel={() => setEditModal(false)} />
           ) : doc.type === 'import_invoice' ? (
-            <EditImportWrapper doc={doc} onSaved={() => { setEditModal(false); load(); onUpdated() }} onCancel={() => setEditModal(false)} />
+            <EditImportWrapper key={`edit-imp-${doc.id}`} doc={doc} onSaved={() => { setEditModal(false); load(); onUpdated() }} onCancel={() => setEditModal(false)} />
           ) : (
-            <EditInvoiceWrapper doc={doc} onSaved={() => { setEditModal(false); load(); onUpdated() }} onCancel={() => setEditModal(false)} />
+            <EditInvoiceWrapper key={`edit-inv-${doc.id}`} doc={doc} onSaved={() => { setEditModal(false); load(); onUpdated() }} onCancel={() => setEditModal(false)} />
           )}
         </Modal>
       )}
@@ -1096,11 +1364,63 @@ export default function DocumentDetail({ docId, onUpdated }: Omit<Props, 'onClos
       <ConfirmDialog
         open={cancelConfirm}
         title="Annuler ce document"
-        message="Le document sera marqué comme annulé. Cette action ne peut pas être défaite."
-        confirmLabel="Annuler le document"
+        message={
+          <div className="space-y-3">
+            {cancelImpact && cancelImpact.impacts && cancelImpact.impacts.length > 0 && (
+              <>
+                <p className="text-sm text-gray-600 dark:text-gray-300">
+                  L'annulation de ce document aura les effets suivants :
+                </p>
+                <div className="space-y-2">
+                  {cancelImpact.impacts.map((impact: any) => (
+                    <div key={impact.key} className={`flex items-start gap-2 rounded-lg px-3 py-2 text-xs ${
+                      impact.type === 'stock' ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-700' :
+                      impact.type === 'accounting' ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-700' :
+                      impact.type === 'payments' ? 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 border border-green-200 dark:border-green-700' :
+                      impact.type === 'smart_edit_reversal' ? 'bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 border-2 border-purple-400 dark:border-purple-600' :
+                      'bg-gray-50 dark:bg-gray-700/50 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-600'
+                    }`}>
+                      <span>{
+                        impact.type === 'stock' ? '📦' : 
+                        impact.type === 'accounting' ? '📒' : 
+                        impact.type === 'payments' ? '💳' : 
+                        impact.type === 'smart_edit_reversal' ? '🔄' :
+                        'ℹ️'
+                      }</span>
+                      <span className={impact.type === 'smart_edit_reversal' ? 'font-semibold' : ''}>{impact.description}</span>
+                      {impact.reversible && <span className="ml-auto text-green-600 dark:text-green-400 font-medium shrink-0">✓ Auto</span>}
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Motif d'annulation (optionnel)</label>
+              <input
+                type="text"
+                value={cancelReason}
+                onChange={e => setCancelReason(e.target.value)}
+                className="input text-sm w-full"
+                placeholder="Ex: Erreur de saisie, commande annulée..."
+              />
+            </div>
+            <p className="text-xs text-red-500 font-medium">Cette opération est irréversible.</p>
+          </div>
+        }
+        confirmLabel="Confirmer l'annulation"
         danger
-        onConfirm={handleCancel}
-        onCancel={() => setCancelConfirm(false)}
+        onConfirm={doCancel}
+        onCancel={() => { setCancelConfirm(false); setCancelImpact(null); setCancelReason('') }}
+      />
+
+      <ConfirmDialog
+        open={deleteConfirm}
+        title="Supprimer définitivement ce brouillon"
+        message={`Le brouillon ${doc.number} sera supprimé définitivement de la base de données. Cette action est irréversible.`}
+        confirmLabel="Supprimer définitivement"
+        danger
+        onConfirm={handleDeleteDraft}
+        onCancel={() => setDeleteConfirm(false)}
       />
 
       {/* Réception partielle Modal */}
@@ -1151,6 +1471,48 @@ export default function DocumentDetail({ docId, onUpdated }: Omit<Props, 'onClos
             </div>
           </div>
         </div>
+      )}
+
+      {/* Smart Edit Confirmation Dialog */}
+      <ConfirmDialog
+        open={smartEditConfirm}
+        title="Modifier ce document (Smart Edit)"
+        message={
+          <div className="space-y-3 text-sm">
+            <p>Cette opération va créer automatiquement :</p>
+            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg px-4 py-3 space-y-2">
+              <div className="flex items-start gap-2">
+                <span className="text-blue-600">1️⃣</span>
+                <span>Un <strong>Avoir d'annulation</strong> pour annuler le document actuel</span>
+              </div>
+              <div className="flex items-start gap-2">
+                <span className="text-blue-600">2️⃣</span>
+                <span>Le document actuel sera marqué comme <strong>annulé</strong></span>
+              </div>
+              <div className="flex items-start gap-2">
+                <span className="text-blue-600">3️⃣</span>
+                <span>Un <strong>nouveau document</strong> identique en mode brouillon que vous pourrez modifier</span>
+              </div>
+            </div>
+            <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg px-4 py-2 text-xs text-green-700 dark:text-green-400">
+              ✅ Cette méthode est <strong>conforme au CGNC</strong> et à la loi 9-88 (conservation de l'historique comptable)
+            </div>
+          </div>
+        }
+        confirmLabel={smartEditing ? "⏳ En cours..." : "✏️ Modifier le document"}
+        onConfirm={handleSmartEdit}
+        onCancel={() => setSmartEditConfirm(false)}
+      />
+
+      {/* Edit Safe Fields Modal */}
+      {editSafeFieldsModal && (
+        <Modal open onClose={() => setEditSafeFieldsModal(false)} title="Modifier les champs" size="md">
+          <EditSafeFieldsModal
+            doc={doc}
+            onSaved={() => { setEditSafeFieldsModal(false); load(); onUpdated() }}
+            onCancel={() => setEditSafeFieldsModal(false)}
+          />
+        </Modal>
       )}
 
       {/* PDF Preview */}

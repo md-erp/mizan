@@ -4,13 +4,15 @@ import JournalView from './JournalView'
 import GrandLivreView from './GrandLivreView'
 import BalanceView from './BalanceView'
 import TvaView from './TvaView'
+import PeriodesView from './PeriodesView'
 
 const TABS = [
-  { id: 'plan',    label: 'Plan Comptable' },
-  { id: 'journal', label: 'Journal' },
-  { id: 'grand',   label: 'Grand Livre' },
-  { id: 'balance', label: 'Balance' },
-  { id: 'tva',     label: 'Déclaration TVA' },
+  { id: 'plan',     label: 'Plan Comptable' },
+  { id: 'journal',  label: 'Journal' },
+  { id: 'grand',    label: 'Grand Livre' },
+  { id: 'balance',  label: 'Balance' },
+  { id: 'tva',      label: 'Déclaration TVA' },
+  { id: 'periodes', label: 'Périodes' },
 ] as const
 
 export default function ComptaPage() {
@@ -31,11 +33,12 @@ export default function ComptaPage() {
         </div>
       </div>
       <div className="p-4 flex-1 min-h-0 overflow-auto">
-        {tab === 'plan'    && <PlanComptable />}
-        {tab === 'journal' && <JournalView />}
-        {tab === 'grand'   && <GrandLivreView />}
-        {tab === 'balance' && <BalanceView />}
-        {tab === 'tva'     && <TvaView />}
+        {tab === 'plan'     && <PlanComptable />}
+        {tab === 'journal'  && <JournalView />}
+        {tab === 'grand'    && <GrandLivreView />}
+        {tab === 'balance'  && <BalanceView />}
+        {tab === 'tva'      && <TvaView />}
+        {tab === 'periodes' && <PeriodesView />}
       </div>
     </div>
   )

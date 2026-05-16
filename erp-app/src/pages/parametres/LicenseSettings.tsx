@@ -171,7 +171,7 @@ export default function LicenseSettings() {
       setTimeout(() => setShowRenew(false), 2500)
     } catch (err: any) {
       const msg: string = err.message ?? ''
-      let code: ActivationState['code'] = 'unknown'
+      let code: Extract<ActivationState, { status: 'error' }>['code'] = 'unknown'
       let userMsg = msg
 
       if (msg.toLowerCase().includes('entreprise') || msg.toLowerCase().includes('company')) {
@@ -368,29 +368,32 @@ export default function LicenseSettings() {
               </div>
             )}
 
-            {activation.status === 'error' && (
+            {activation.status === 'error' && (() => {
+              const err = activation as Extract<ActivationState, { status: 'error' }>
+              return (
               <div className="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-sm text-red-700 dark:text-red-400">
                 <div className="flex items-start gap-2">
                   <span className="text-lg shrink-0">
-                    {activation.code === 'wrong_company' ? '🏢' :
-                     activation.code === 'expired_key'   ? '📅' :
-                     activation.code === 'already_active'? '✅' :
-                     activation.code === 'invalid_sig'   ? '🔐' : '❌'}
+                    {err.code === 'wrong_company' ? '🏢' :
+                     err.code === 'expired_key'   ? '📅' :
+                     err.code === 'already_active'? '✅' :
+                     err.code === 'invalid_sig'   ? '🔐' : '❌'}
                   </span>
                   <div>
                     <div className="font-semibold mb-0.5">
-                      {activation.code === 'wrong_company'  ? "Nom d'entreprise incorrect" :
-                       activation.code === 'expired_key'    ? 'Clé expirée' :
-                       activation.code === 'already_active' ? 'Déjà active' :
-                       activation.code === 'invalid_sig'    ? 'Clé invalide' :
-                       activation.code === 'format'         ? 'Format incorrect' :
+                      {err.code === 'wrong_company'  ? "Nom d'entreprise incorrect" :
+                       err.code === 'expired_key'    ? 'Clé expirée' :
+                       err.code === 'already_active' ? 'Déjà active' :
+                       err.code === 'invalid_sig'    ? 'Clé invalide' :
+                       err.code === 'format'         ? 'Format incorrect' :
                        'Activation échouée'}
                     </div>
-                    <div className="text-xs opacity-90">{activation.message}</div>
+                    <div className="text-xs opacity-90">{err.message}</div>
                   </div>
                 </div>
               </div>
-            )}
+              )
+            })()}
 
             <div className="flex gap-2 pt-1">
               <button type="button" onClick={() => setShowRenew(false)} className="btn-secondary flex-1 justify-center">

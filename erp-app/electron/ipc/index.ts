@@ -19,6 +19,7 @@ import { registerImportHandlers }        from './import.handler'
 import { registerAttachmentsHandlers }   from './attachments.handler'
 import { registerAuditHandlers }         from './audit.handler'
 import { registerSyncHandlers }          from './sync.handler'
+import { registerFixAccountingHandlers } from './fix-accounting.handler'
 
 export function registerAllHandlers(): void {
   registerConfigHandlers()
@@ -41,6 +42,7 @@ export function registerAllHandlers(): void {
   registerAttachmentsHandlers()
   registerAuditHandlers()
   registerSyncHandlers()
+  registerFixAccountingHandlers()
 }
 
 // Helper: wrapper موحد لكل handler

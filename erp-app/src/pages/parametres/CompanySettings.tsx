@@ -10,7 +10,7 @@ export default function CompanySettings() {
     company_name: '', company_ice: '', company_if: '', company_rc: '',
     company_address: '', company_city: '', company_country: 'Maroc',
     company_phone: '', company_fax: '', company_email: '', company_website: '',
-    company_cnss: '', company_capital: '', company_legal_form: '',
+    company_cnss: '', company_patente: '', company_capital: '', company_legal_form: '',
     company_bank_name: '', company_bank_rib: '', company_bank_account: '',
     company_logo: '',
     company_logo_width: 0 as number,
@@ -35,6 +35,7 @@ export default function CompanySettings() {
         company_email: config.company_email ?? '',
         company_website: config.company_website ?? '',
         company_cnss: config.company_cnss ?? '',
+        company_patente: (config as any).company_patente ?? '',
         company_capital: config.company_capital ?? '',
         company_legal_form: config.company_legal_form ?? '',
         company_bank_name: config.company_bank_name ?? '',
@@ -198,6 +199,10 @@ export default function CompanySettings() {
           <div className="grid grid-cols-2 gap-4">
             {field('company_rc', 'RC', 'RC12345')}
             {field('company_cnss', 'CNSS', '1234567')}
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            {field('company_patente', 'Patente / TP', '12345678')}
+            <div></div>
           </div>
         </div>
 

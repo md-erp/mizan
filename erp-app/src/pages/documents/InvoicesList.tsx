@@ -1,3 +1,4 @@
+import { fmt } from '../../lib/format'
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { api } from '../../lib/api'
 import { toast } from '../../components/ui/Toast'
@@ -10,12 +11,10 @@ import BLForm from './BLForm'
 import AvoirForm from './AvoirForm'
 import DocumentDetail from '../../components/DocumentDetail'
 import ConfirmDialog from '../../components/ui/ConfirmDialog'
+import { docRowBg } from '../../lib/rowBg'
 import type { Document, PaginatedResponse } from '../../types'
 
 // ─── helpers ────────────────────────────────────────────────────────────────
-
-const fmt = (n: number) =>
-  new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n ?? 0)
 
 function daysFromToday(dateStr: string): number {
   const d = new Date(dateStr)
@@ -101,7 +100,7 @@ export default function InvoicesList({
     totalAmount: 0, unpaidAmount: 0, overdueAmount: 0,
     accepted: 0, rejected: 0, expired: 0, converted: 0,
     delivered: 0, pendingStock: 0,
-    retourAmount: 0, commercialAmount: 0,
+    retourAmount: 0, commercialAmount: 0, drafts: 0, draftsAmount: 0,
   })
 
   const searchRef = useRef<ReturnType<typeof setTimeout>>()
@@ -139,7 +138,7 @@ export default function InvoicesList({
 
       // compute stats from same result (avoid second API call)
       const allRows = result.rows ?? []
-      const activeRows = allRows.filter(d => d.status !== 'cancelled')
+      const activeRows = allRows.filter(d => d.status !== 'cancelled' && d.status !== 'draft')
 
       setStats({
         total:           activeRows.length,
@@ -151,6 +150,8 @@ export default function InvoicesList({
         unpaidAmount:    activeRows.filter(d => ['confirmed', 'partial'].includes(d.status))
                             .reduce((s, d) => s + d.total_ttc, 0),
         overdueAmount:   activeRows.filter(d => isOverdue(d)).reduce((s, d) => s + d.total_ttc, 0),
+        drafts:          allRows.filter(d => d.status === 'draft').length,
+        draftsAmount:    allRows.filter(d => d.status === 'draft').reduce((s, d) => s + d.total_ttc, 0),
         accepted:        allRows.filter(d => d.status === 'confirmed').length,
         rejected:        allRows.filter(d => d.status === 'cancelled').length,
         expired:         allRows.filter(d => (d as any).validity_date && new Date((d as any).validity_date) < new Date() && d.status === 'draft').length,
@@ -207,13 +208,23 @@ export default function InvoicesList({
 
   async function handleCancel(id: number) {
     try {
-      await api.cancelDocument(id)
-      toast('Document annulé', 'warning')
+      const result = await api.cancelDocument(id) as any
+      if (result?.cancelled && result?.avoirNumber) {
+        toast(`✅ Document annulé — Avoir ${result.avoirNumber} créé automatiquement`, 'success')
+      } else {
+        toast('Document annulé', 'warning')
+      }
       load()
-    } catch (e: any) { toast(e.message, 'error') }
+    } catch (e: any) {
+      const msg = e.message ?? ''
+      if (msg.includes('période') || msg.includes('Période') || msg.includes('fermée') || msg.includes('closed')) {
+        toast('Période comptable fermée', 'error')
+      } else {
+        toast(msg, 'error')
+      }
+    }
     finally { setCancelId(null) }
   }
-
 
   // ── sort icon ─────────────────────────────────────────────────────────────
 
@@ -244,7 +255,7 @@ export default function InvoicesList({
             { label: 'Impayé',        value: fmt(stats.unpaidAmount) + ' MAD', sub: 'À encaisser',                    color: 'text-orange-600 dark:text-orange-400', bg: 'bg-orange-50 dark:bg-orange-900/20', alert: stats.unpaidAmount > 0 },
             { label: 'En retard',     value: String(stats.overdue),            sub: fmt(stats.overdueAmount) + ' MAD', color: 'text-red-600 dark:text-red-400',      bg: 'bg-red-50 dark:bg-red-900/20', alert: stats.overdue > 0 },
             { label: 'Confirmées',    value: String(stats.confirmed),           sub: 'En attente de paiement',        color: 'text-blue-600 dark:text-blue-400',     bg: 'bg-blue-50 dark:bg-blue-900/20' },
-            { label: 'Payées',        value: String(stats.paid),                sub: `Partiels: ${stats.partial}`,    color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-900/20' },
+            { label: 'Brouillons',    value: fmt((stats as any).draftsAmount ?? 0) + ' MAD', sub: `${(stats as any).drafts ?? 0} brouillon(s)`, color: 'text-slate-500 dark:text-slate-400', bg: 'bg-slate-50 dark:bg-slate-700/30' },
           ].map(c => (
             <div key={c.label} className={`card p-4 ${c.bg} ${(c as any).alert ? 'border-red-200 dark:border-red-700' : ''}`}>
               <div className="kpi-label">{c.label}</div>
@@ -354,10 +365,10 @@ export default function InvoicesList({
           <colgroup>
             <col style={{ width: '65px' }} />
             <col style={{ width: '80px' }} />
-            <col style={{ width: '180px' }} />
-            <col style={{ width: '147px' }} />
-            <col style={{ width: '124px' }} />
-            <col style={{ width: '147px' }} />
+            <col style={{ width: '160px' }} />
+            <col style={{ width: '130px' }} />
+            <col style={{ width: '110px' }} />
+            <col style={{ width: '130px' }} />
             <col style={{ width: '68px' }} />
           </colgroup>
           <thead className="bg-gray-50 dark:bg-gray-800">
@@ -428,11 +439,12 @@ export default function InvoicesList({
                     setSelectedDocId(doc.id)
                   }}
                   className={`cursor-pointer transition-colors relative
-                    ${overdue
-                      ? 'bg-red-50/70 dark:bg-red-900/15 hover:bg-red-100/80 dark:hover:bg-red-900/25 border-l-4 border-l-red-500'
-                      : isSelected
-                        ? `bg-primary/5 dark:bg-primary/10 ${payBar || 'border-l-2 border-l-primary'}`
-                        : `hover:bg-slate-50 dark:hover:bg-slate-700/40 ${payBar}`}`}>
+                    ${docRowBg(doc.status, {
+                      overdue,
+                      pendingStock: (doc as any).pending_stock_count > 0,
+                      selected: isSelected,
+                    })}
+                    ${isInvoiceType && !overdue ? payBar : ''}`}>
 
                   <td className="px-3 py-3 text-center whitespace-nowrap align-middle">
                     <span className="font-mono text-xs font-semibold text-primary dark:text-primary-100">{doc.number}</span>

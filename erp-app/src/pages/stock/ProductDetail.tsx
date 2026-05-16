@@ -1,3 +1,4 @@
+import { fmt } from '../../lib/format'
 import { useEffect, useState, useCallback } from 'react'
 import { api } from '../../lib/api'
 import Modal from '../../components/ui/Modal'
@@ -19,7 +20,7 @@ export default function ProductDetail({ id, onStockChanged }: Props) {
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
 
-  const fmt = (n: number) => new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n ?? 0)
+  // fmt imported from lib/format
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -332,12 +333,12 @@ export default function ProductDetail({ id, onStockChanged }: Props) {
             <div>
               <label className="block text-sm font-medium mb-1">Quantité *</label>
               <input value={manualForm.quantity} onChange={e => setManualForm(f => ({ ...f, quantity: Number(e.target.value) }))}
-                className="input" type="number" min="0.01" step="0.01" required />
+                className="input" type="number" step="0.01" min="0.01" required />
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">Coût unitaire (MAD)</label>
               <input value={manualForm.unit_cost} onChange={e => setManualForm(f => ({ ...f, unit_cost: Number(e.target.value) }))}
-                className="input" type="number" min="0" step="0.01" />
+                className="input" type="number" step="0.01" min="0" />
             </div>
           </div>
           <div>

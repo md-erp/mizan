@@ -15,6 +15,12 @@ import { migration_012_company_details } from './012_company_details'
 import { migration_013_custom_templates } from './013_custom_templates'
 import { migration_014_payment_reference } from './014_payment_reference'
 import { migration_015_fix_payment_reference } from './015_fix_payment_reference'
+import { migration_016_fill_period_id } from './016_fill_period_id'
+import { migration_017_add_patente } from './017_add_patente'
+import { migration_018_payment_validation } from './018_payment_validation'
+import { migration_019_normalize_payment_refs } from './019_normalize_payment_refs'
+import { migration_020_sequence_recycling } from './020_sequence_recycling'
+import { migration_021_add_global_discount } from './021_add_global_discount'
 
 const MIGRATIONS = [
   { version: 1, name: 'initial', run: migration_001_initial },
@@ -33,6 +39,12 @@ const MIGRATIONS = [
   { version: 13, name: 'custom_templates', run: migration_013_custom_templates },
   { version: 14, name: 'payment_reference', run: migration_014_payment_reference },
   { version: 15, name: 'fix_payment_reference', run: migration_015_fix_payment_reference },
+  { version: 16, name: 'fill_period_id', run: migration_016_fill_period_id },
+  { version: 17, name: 'add_patente', run: migration_017_add_patente },
+  { version: 18, name: 'payment_validation', run: migration_018_payment_validation },
+  { version: 19, name: 'normalize_payment_refs', run: migration_019_normalize_payment_refs },
+  { version: 20, name: 'sequence_recycling', run: migration_020_sequence_recycling },
+  { version: 21, name: 'add_global_discount', run: migration_021_add_global_discount },
 ]
 
 export function runMigrations(db: Database.Database): void {

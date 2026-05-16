@@ -1,3 +1,4 @@
+import { fmt } from '../../lib/format'
 import { useEffect, useState, useCallback } from 'react'
 import { api } from '../../lib/api'
 import Modal from '../../components/ui/Modal'
@@ -5,9 +6,10 @@ import PaymentForm from '../../components/forms/PaymentForm'
 import PartyForm from '../../components/forms/PartyForm'
 import AttachmentsPanel from '../../components/AttachmentsPanel'
 import DocumentDetail from '../../components/DocumentDetail'
+import DocLink from '../../components/ui/DocLink'
 import type { Client, Supplier, Document, Payment } from '../../types'
 
-const fmt = (n: number) => new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n ?? 0)
+// fmt imported from lib/format
 
 const METHOD_LABELS: Record<string, string> = {
   cash: '💵 Espèces', bank: '🏦 Virement', cheque: '📝 Chèque', lcn: '📋 LCN', avoir: '↩️ Avoir',
@@ -67,6 +69,12 @@ export default function PartyDetail({ id, type, onUpdated }: Props) {
 
   useEffect(() => { load() }, [load])
 
+  useEffect(() => {
+    const h = () => load()
+    window.addEventListener('app:refresh', h)
+    return () => window.removeEventListener('app:refresh', h)
+  }, [load])
+
   if (loading) return (
     <div className="flex items-center justify-center h-64 text-gray-400">
       <div className="text-center"><div className="text-2xl mb-2 animate-pulse">⏳</div><div className="text-sm">Chargement...</div></div>
@@ -77,16 +85,19 @@ export default function PartyDetail({ id, type, onUpdated }: Props) {
   )
 
   // ── Calculs (après guard) ─────────────────────────────────────────────────
-  // balance = source unique de vérité depuis le backend
-  // = total_invoiced - total_payments_cleared (incluant avances)
   const balance = (party as any).balance ?? 0
   const invoiceTypes = type === 'client' ? ['invoice'] : ['purchase_invoice', 'import_invoice']
   const totalInvoiced = documents
     .filter(d => invoiceTypes.includes(d.type) && ['confirmed', 'partial', 'paid', 'delivered'].includes(d.status))
     .reduce((s, d) => s + d.total_ttc, 0)
-  const totalPaid = Math.max(0, totalInvoiced - balance)
 
-  const cheques = payments.filter(p => p.method === 'cheque' || p.method === 'lcn')
+  // الدفعات الفعّالة فقط (بدون الملغاة)
+  const activePayments = payments.filter(p => (p.status as string) !== 'cancelled')
+  const totalPaid = activePayments
+    .filter(p => ['cleared', 'collected'].includes(p.status))
+    .reduce((s, p) => s + p.amount, 0)
+
+  const cheques = activePayments.filter(p => p.method === 'cheque' || p.method === 'lcn')
   const pendingCheques = cheques.filter(p => p.status === 'pending')
 
   const docTypes = type === 'client' ? DOC_TYPES_CLIENT : DOC_TYPES_SUPPLIER
@@ -96,7 +107,7 @@ export default function PartyDetail({ id, type, onUpdated }: Props) {
 
   // آخر تعامل
   const lastDoc = documents.sort((a, b) => b.date.localeCompare(a.date))[0]
-  const lastPay = payments.sort((a, b) => b.date.localeCompare(a.date))[0]
+  const lastPay = activePayments.sort((a, b) => b.date.localeCompare(a.date))[0]
 
   const openInvoices = documents.filter(d =>
     invoiceTypes.includes(d.type) && ['confirmed', 'partial'].includes(d.status)
@@ -137,7 +148,7 @@ export default function PartyDetail({ id, type, onUpdated }: Props) {
             )}
             <button onClick={() => setPaymentModal(true)}
               className="btn-primary btn-sm mt-2 w-full justify-center">
-              {type === 'client' ? '💰 Encaisser' : '💸 Régler'}
+              {type === 'client' ? 'Encaisser 💰' : 'Régler 💸'}
             </button>
           </div>
         </div>
@@ -188,7 +199,7 @@ export default function PartyDetail({ id, type, onUpdated }: Props) {
         <div className="flex gap-1 py-1.5 overflow-x-auto">
           {([
             { id: 'documents', label: 'Documents', count: documents.length },
-            { id: 'payments',  label: 'Paiements', count: payments.length },
+            { id: 'payments',  label: 'Paiements', count: activePayments.length },
             { id: 'cheques',   label: 'Chèques & LCN', count: cheques.length, alert: pendingCheques.length > 0 },
             { id: 'files',     label: 'Pièces jointes' },
           ] as const).map(t => (
@@ -273,10 +284,10 @@ export default function PartyDetail({ id, type, onUpdated }: Props) {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-              {payments.length === 0 && (
+              {activePayments.length === 0 && (
                 <tr><td colSpan={5} className="text-center py-8 text-gray-400 text-sm">Aucun paiement</td></tr>
               )}
-              {payments.map(p => (
+              {activePayments.map(p => (
                 <tr key={p.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/30">
                   <td className="px-3 py-2.5 text-gray-500 text-xs">{new Date(p.date).toLocaleDateString('fr-FR')}</td>
                   <td className="px-3 py-2.5 text-xs">{METHOD_LABELS[p.method] ?? p.method}</td>

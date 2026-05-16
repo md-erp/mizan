@@ -36,7 +36,7 @@ function registerSupplierHandlers() {
         SELECT COALESCE(SUM(amount), 0) as t FROM payments
         WHERE party_id=? AND party_type='supplier'
           AND NOT (method IN ('cheque','lcn') AND status='pending')
-          AND status != 'bounced'
+          AND status NOT IN ('bounced', 'cancelled')
       `).get(supplier.id);
             const balance = (invRow.t ?? 0) - (payRow.t ?? 0);
             return { ...supplier, balance };
@@ -59,7 +59,7 @@ function registerSupplierHandlers() {
       SELECT COALESCE(SUM(amount), 0) as t FROM payments
       WHERE party_id=? AND party_type='supplier'
         AND NOT (method IN ('cheque','lcn') AND status='pending')
-        AND status != 'bounced'
+        AND status NOT IN ('bounced', 'cancelled')
     `).get(id);
         const balance = (invRow2.t ?? 0) - (payRow2.t ?? 0);
         return { ...supplier, balance };

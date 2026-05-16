@@ -1,9 +1,8 @@
+import { fmt } from '../../lib/format'
 import { useState, useEffect, useCallback } from 'react'
 import DocLink from '../../components/ui/DocLink'
 import { api } from '../../lib/api'
-
-const fmt = (n: number) =>
-  new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n ?? 0)
+import ReportView, { type ReportDef } from '../../components/ReportView'
 
 function pctChange(curr: number, prev: number) {
   if (!prev) return null
@@ -110,7 +109,7 @@ export default function RapportsPage() {
       const tvaR         = get(8)
       const recentDocsR  = get(9)
       const paymentsR    = get(10)
-      const notifR       = get(11)
+      // call 11 = notifications (fetched for side effects only)
       const overdueR     = get(12)
       const productionR  = get(13)
 
@@ -137,7 +136,6 @@ export default function RapportsPage() {
       const receivablesArr = toArr(receivablesR)
       const payablesArr    = toArr(payablesR)
       const chequesArr     = toArr(chequesR)
-      const notifArr       = toArr(notifR)
 
       const paid    = salesArr.filter((r: any) => r.payment_status === 'paid').length
       const unpaidC = salesArr.filter((r: any) => r.payment_status !== 'paid').length
@@ -449,7 +447,7 @@ export default function RapportsPage() {
                     <div className="text-gray-600 dark:text-gray-300">{n.client_name ?? '—'}</div>
                   </div>
                   <div className="text-right shrink-0 ml-2">
-                    <div className="text-red-600 font-bold">{new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n.remaining ?? 0)} MAD</div>
+                    <div className="text-red-600 font-bold">{fmt(n.remaining ?? 0)} MAD</div>
                     <div className="text-red-500">{n.days_overdue}j retard</div>
                   </div>
                 </div>
@@ -576,6 +574,24 @@ export default function RapportsPage() {
           </div>
         </div>
       )}
+
+      {/* ── Rapports détaillés ── */}
+      <div className="mt-2">
+        <h2 className="text-base font-semibold text-gray-700 dark:text-gray-200 mb-3">📊 Rapports détaillés</h2>
+        <ReportView
+          reports={[
+            { id: 'sales',        icon: '📄', label: 'Ventes',              desc: 'Toutes les factures clients',          dateFilter: true },
+            { id: 'purchases',    icon: '🛒', label: 'Achats',              desc: 'Factures fournisseurs',                dateFilter: true },
+            { id: 'stock',        icon: '📦', label: 'Stock',               desc: 'État du stock par produit',            dateFilter: false },
+            { id: 'receivables',  icon: '💰', label: 'Créances clients',    desc: 'Soldes clients impayés',               dateFilter: false },
+            { id: 'payables',     icon: '💸', label: 'Dettes fournisseurs', desc: 'Soldes fournisseurs à régler',         dateFilter: false },
+            { id: 'cheques',      icon: '📝', label: 'Chèques & LCN',       desc: 'Effets en attente d\'encaissement',    dateFilter: false },
+            { id: 'tva_detail',   icon: '🧾', label: 'TVA détail',          desc: 'Détail TVA par document',              dateFilter: true },
+            { id: 'profit_loss',  icon: '📈', label: 'Résultat',            desc: 'Produits, charges et résultat net',    dateFilter: true },
+            { id: 'overdue',      icon: '⚠️', label: 'Factures en retard',  desc: 'Factures dépassant l\'échéance',       dateFilter: false },
+          ] as ReportDef[]}
+        />
+      </div>
 
     </div>
   )

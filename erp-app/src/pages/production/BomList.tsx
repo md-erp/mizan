@@ -1,3 +1,4 @@
+import { fmt } from '../../lib/format'
 import React, { useEffect, useState, useCallback } from 'react'
 import { api } from '../../lib/api'
 import { toast } from '../../components/ui/Toast'
@@ -5,7 +6,7 @@ import Modal from '../../components/ui/Modal'
 import ConfirmDialog from '../../components/ui/ConfirmDialog'
 import BomForm from './BomForm'
 
-const fmt = (n: number) => new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n ?? 0)
+// fmt imported from lib/format
 
 export default function BomList() {
 

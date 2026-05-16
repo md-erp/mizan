@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { api } from '../../lib/api'
 import { toast } from '../../components/ui/Toast'
 import Pagination from '../../components/ui/Pagination'
@@ -60,10 +60,136 @@ function AuditDetail({ row }: { row: any }) {
     })
   }
 
+  // ✅ عرض مفصّل للقيود المحاسبية
+  const renderJournalEntry = (entry: any) => {
+    if (!entry || typeof entry !== 'object') return null
+    
+    return (
+      <div className="space-y-3">
+        {/* معلومات القيد */}
+        <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3 space-y-1.5">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold text-blue-600 dark:text-blue-400">📋 Écriture comptable</span>
+            {entry.reference && (
+              <span className="text-xs bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded font-mono">
+                {entry.reference}
+              </span>
+            )}
+          </div>
+          {entry.description && (
+            <div className="text-sm text-gray-700 dark:text-gray-300">{entry.description}</div>
+          )}
+          {entry.date && (
+            <div className="text-xs text-gray-500">
+              📅 {new Date(entry.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  const renderJournalLines = (lines: any[]) => {
+    if (!Array.isArray(lines) || lines.length === 0) return null
+    
+    const totalDebit = lines.reduce((sum, l) => sum + (Number(l.debit) || 0), 0)
+    const totalCredit = lines.reduce((sum, l) => sum + (Number(l.credit) || 0), 0)
+    
+    return (
+      <div className="space-y-2">
+        <div className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2">
+          💰 Écritures comptables ({lines.length})
+        </div>
+        
+        {/* جدول الخطوط */}
+        <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+          <table className="w-full text-xs">
+            <thead className="bg-gray-50 dark:bg-gray-800">
+              <tr>
+                <th className="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-400">Compte</th>
+                <th className="px-3 py-2 text-right font-medium text-gray-600 dark:text-gray-400">Débit</th>
+                <th className="px-3 py-2 text-right font-medium text-gray-600 dark:text-gray-400">Crédit</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+              {lines.map((line, i) => (
+                <tr key={i} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                  <td className="px-3 py-2">
+                    <div className="font-medium text-gray-800 dark:text-gray-200">
+                      {line.account_code && (
+                        <span className="font-mono text-primary mr-1.5">{line.account_code}</span>
+                      )}
+                      {line.account_name}
+                    </div>
+                    {line.notes && (
+                      <div className="text-[10px] text-gray-400 mt-0.5">{line.notes}</div>
+                    )}
+                  </td>
+                  <td className="px-3 py-2 text-right font-mono">
+                    {line.debit > 0 ? (
+                      <span className="text-green-600 dark:text-green-400 font-semibold">
+                        {Number(line.debit).toFixed(2)}
+                      </span>
+                    ) : (
+                      <span className="text-gray-300">—</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2 text-right font-mono">
+                    {line.credit > 0 ? (
+                      <span className="text-red-600 dark:text-red-400 font-semibold">
+                        {Number(line.credit).toFixed(2)}
+                      </span>
+                    ) : (
+                      <span className="text-gray-300">—</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot className="bg-gray-50 dark:bg-gray-800 font-semibold">
+              <tr>
+                <td className="px-3 py-2 text-gray-700 dark:text-gray-300">Total</td>
+                <td className="px-3 py-2 text-right font-mono text-green-600 dark:text-green-400">
+                  {totalDebit.toFixed(2)}
+                </td>
+                <td className="px-3 py-2 text-right font-mono text-red-600 dark:text-red-400">
+                  {totalCredit.toFixed(2)}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        
+        {/* تحقق من التوازن */}
+        {Math.abs(totalDebit - totalCredit) < 0.01 ? (
+          <div className="flex items-center gap-1.5 text-xs text-green-600 dark:text-green-400">
+            <span>✓</span>
+            <span>Écriture équilibrée</span>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1.5 text-xs text-red-600 dark:text-red-400">
+            <span>⚠</span>
+            <span>Déséquilibre: {Math.abs(totalDebit - totalCredit).toFixed(2)} MAD</span>
+          </div>
+        )}
+      </div>
+    )
+  }
+
   const fmtVal = (v: any) => {
     if (v === null || v === undefined) return <span className="text-gray-300 italic">—</span>
     if (typeof v === 'boolean') return v ? '✓ Oui' : '✗ Non'
     if (v === 1 || v === 0) return v === 1 ? '✓ Oui' : '✗ Non'
+    
+    // ✅ إذا كان object أو array → عرض JSON منسق
+    if (typeof v === 'object') {
+      return (
+        <pre className="text-xs bg-gray-50 dark:bg-gray-800 p-2 rounded border border-gray-200 dark:border-gray-700 overflow-x-auto max-w-md">
+          {JSON.stringify(v, null, 2)}
+        </pre>
+      )
+    }
+    
     return String(v)
   }
 
@@ -152,19 +278,52 @@ function AuditDetail({ row }: { row: any }) {
       )}
 
       {/* Données brutes si pas de comparaison */}
-      {changes.length === 0 && (row.new_values || row.old_values) && (
-        <div>
-          <div className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-3">Données</div>
-          <div className="space-y-2">
-            {Object.entries(row.new_values ?? row.old_values ?? {}).map(([k, v]) => (
-              <div key={k} className="flex items-center justify-between py-1.5 border-b border-gray-100 dark:border-gray-700 last:border-0">
-                <span className="text-xs text-gray-500">{FIELD_LABELS[k] ?? k}</span>
-                <span className="text-xs font-medium text-gray-700 dark:text-gray-200">{fmtVal(v)}</span>
-              </div>
-            ))}
+      {changes.length === 0 && (row.new_values || row.old_values) && (() => {
+        const data = row.new_values ?? row.old_values ?? {}
+        
+        // ✅ عرض خاص للقيود المحاسبية المحذوفة
+        if (row.action === 'DELETE_JOURNAL_ENTRY' && data.entry && data.lines) {
+          return (
+            <div className="space-y-4">
+              {renderJournalEntry(data.entry)}
+              {renderJournalLines(data.lines)}
+              
+              {/* معلومات إضافية */}
+              {(data.total_debit || data.total_credit) && (
+                <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 text-xs space-y-1">
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Total Débit:</span>
+                    <span className="font-mono font-semibold text-green-600 dark:text-green-400">
+                      {Number(data.total_debit || 0).toFixed(2)} MAD
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Total Crédit:</span>
+                    <span className="font-mono font-semibold text-red-600 dark:text-red-400">
+                      {Number(data.total_credit || 0).toFixed(2)} MAD
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )
+        }
+        
+        // ✅ عرض عادي للبيانات الأخرى
+        return (
+          <div>
+            <div className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-3">Données</div>
+            <div className="space-y-3">
+              {Object.entries(data).map(([k, v]) => (
+                <div key={k} className="flex flex-col gap-1 py-2 border-b border-gray-100 dark:border-gray-700 last:border-0">
+                  <span className="text-xs text-gray-500 font-medium">{FIELD_LABELS[k] ?? k}</span>
+                  <div className="text-xs text-gray-700 dark:text-gray-200">{fmtVal(v)}</div>
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {/* Raison si présente */}
       {row.reason && (

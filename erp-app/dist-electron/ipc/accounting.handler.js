@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.registerAccountingHandlers = registerAccountingHandlers;
 const index_1 = require("./index");
 const connection_1 = require("../database/connection");
+const accounting_service_1 = require("../services/accounting.service");
 function registerAccountingHandlers() {
     (0, index_1.handle)('accounting:getAccounts', (filters) => {
         const db = (0, connection_1.getDb)();
@@ -68,14 +69,22 @@ function registerAccountingHandlers() {
             dateFilter += ' AND je.date <= ?';
             params.push(filters.end_date);
         }
+        // عند إخفاء الإلغاءات: نخفي القيود العكسية (ANNUL-) والقيود الأصلية التي لها عكسي
+        const annulFilter = filters.hide_annulations
+            ? `AND je.reference NOT LIKE 'ANNUL-%'
+         AND je.reference NOT IN (
+           SELECT REPLACE(je2.reference, 'ANNUL-', '')
+           FROM journal_entries je2
+           WHERE je2.reference LIKE 'ANNUL-%'
+         )`
+            : '';
         const lines = db.prepare(`
       SELECT jl.*, je.date, je.reference, je.description
       FROM journal_lines jl
       JOIN journal_entries je ON je.id = jl.entry_id
-      WHERE jl.account_id = ? ${dateFilter}
+      WHERE jl.account_id = ? ${dateFilter} ${annulFilter}
       ORDER BY je.date ASC, je.id ASC
     `).all(...params);
-        // رصيد تراكمي
         let balance = 0;
         return lines.map(line => {
             balance += line.debit - line.credit;
@@ -110,19 +119,23 @@ function registerAccountingHandlers() {
     (0, index_1.handle)('accounting:getTva', (filters) => {
         const db = (0, connection_1.getDb)();
         const collectee = db.prepare(`
-      SELECT jl.notes as tva_rate, SUM(jl.credit) as amount
+      SELECT SUM(jl.credit) - SUM(jl.debit) as amount
       FROM journal_lines jl
       JOIN journal_entries je ON je.id = jl.entry_id
       JOIN accounts a ON a.id = jl.account_id
-      WHERE a.code = '4455' AND je.date BETWEEN ? AND ?
+      WHERE a.code = '4455'
+        AND je.date BETWEEN ? AND ?
+        AND je.reference NOT LIKE 'ANNUL-ANNUL-%'
       GROUP BY jl.notes
     `).all(filters.start_date, filters.end_date);
         const recuperable = db.prepare(`
-      SELECT jl.notes as tva_rate, SUM(jl.debit) as amount
+      SELECT SUM(jl.debit) - SUM(jl.credit) as amount
       FROM journal_lines jl
       JOIN journal_entries je ON je.id = jl.entry_id
       JOIN accounts a ON a.id = jl.account_id
-      WHERE a.code = '3455' AND je.date BETWEEN ? AND ?
+      WHERE a.code = '3455'
+        AND je.date BETWEEN ? AND ?
+        AND je.reference NOT LIKE 'ANNUL-ANNUL-%'
       GROUP BY jl.notes
     `).all(filters.start_date, filters.end_date);
         const totalCollectee = collectee.reduce((s, r) => s + r.amount, 0);
@@ -138,6 +151,58 @@ function registerAccountingHandlers() {
     (0, index_1.handle)('accounting:getPeriods', () => {
         const db = (0, connection_1.getDb)();
         return db.prepare('SELECT * FROM accounting_periods ORDER BY start_date DESC').all();
+    });
+    (0, index_1.handle)('accounting:createPeriod', (data) => {
+        const db = (0, connection_1.getDb)();
+        const result = db.prepare(`
+      INSERT INTO accounting_periods (name, start_date, end_date, fiscal_year, status, notes)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(data.name, data.start_date, data.end_date, data.fiscal_year, data.status ?? 'open', data.notes ?? null);
+        return { id: result.lastInsertRowid };
+    });
+    (0, index_1.handle)('accounting:updatePeriod', (data) => {
+        const db = (0, connection_1.getDb)();
+        const fields = [];
+        const values = [];
+        if (data.name !== undefined) {
+            fields.push('name = ?');
+            values.push(data.name);
+        }
+        if (data.start_date !== undefined) {
+            fields.push('start_date = ?');
+            values.push(data.start_date);
+        }
+        if (data.end_date !== undefined) {
+            fields.push('end_date = ?');
+            values.push(data.end_date);
+        }
+        if (data.fiscal_year !== undefined) {
+            fields.push('fiscal_year = ?');
+            values.push(data.fiscal_year);
+        }
+        if (data.status !== undefined) {
+            fields.push('status = ?');
+            values.push(data.status);
+        }
+        if (data.notes !== undefined) {
+            fields.push('notes = ?');
+            values.push(data.notes);
+        }
+        if (fields.length === 0)
+            throw new Error('Aucune modification fournie');
+        values.push(data.id);
+        db.prepare(`UPDATE accounting_periods SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+        return { success: true };
+    });
+    (0, index_1.handle)('accounting:deletePeriod', (id) => {
+        const db = (0, connection_1.getDb)();
+        // التحقق من عدم وجود قيود مرتبطة
+        const count = db.prepare('SELECT COUNT(*) as c FROM journal_entries WHERE period_id = ?').get(id).c;
+        if (count > 0) {
+            throw new Error(`Impossible de supprimer cette période — ${count} écriture(s) comptable(s) y sont liées`);
+        }
+        db.prepare('DELETE FROM accounting_periods WHERE id = ?').run(id);
+        return { success: true };
     });
     (0, index_1.handle)('accounting:closePeriod', (id) => {
         const db = (0, connection_1.getDb)();
@@ -162,6 +227,17 @@ function registerAccountingHandlers() {
         const db = (0, connection_1.getDb)();
         if (!data.code?.trim() || !data.name?.trim())
             throw new Error('Code et intitulé requis');
+        // تعديل حساب موجود
+        if (data._update && data.id) {
+            const acc = db.prepare('SELECT id, is_system FROM accounts WHERE id = ?').get(data.id);
+            if (!acc)
+                throw new Error('Compte introuvable');
+            if (acc.is_system)
+                throw new Error('Impossible de modifier un compte système');
+            db.prepare('UPDATE accounts SET name = ?, type = ? WHERE id = ?')
+                .run(data.name.trim(), data.type, data.id);
+            return { id: data.id };
+        }
         const existing = db.prepare('SELECT id FROM accounts WHERE code = ?').get(data.code.trim());
         if (existing)
             throw new Error(`Le compte ${data.code} existe déjà`);
@@ -174,6 +250,8 @@ function registerAccountingHandlers() {
     (0, index_1.handle)('accounting:createEntry', (data) => {
         const db = (0, connection_1.getDb)();
         const tx = db.transaction(() => {
+            // ✅ التحقق من الفترة المحاسبية قبل إنشاء القيد اليدوي
+            (0, accounting_service_1.checkPeriodOpen)(db, data.date);
             const entry = db.prepare(`
         INSERT INTO journal_entries (date, reference, description, is_auto, created_by)
         VALUES (?, ?, ?, 0, ?)

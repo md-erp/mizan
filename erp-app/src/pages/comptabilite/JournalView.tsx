@@ -1,3 +1,5 @@
+import { fmt } from '../../lib/format'
+import NumberInput from '../../components/ui/NumberInput'
 import { useEffect, useState, useCallback } from 'react'
 import { api } from '../../lib/api'
 import { toast } from '../../components/ui/Toast'
@@ -24,7 +26,6 @@ function ManualEntryForm({ onSaved, onCancel }: { onSaved: () => void; onCancel:
   useEffect(() => {
     api.getAccounts().then((r: any) => setAccounts(r ?? [])).catch(() => {})
   }, [])
-
   function addLine() {
     setLines(l => [...l, { account_id: '', debit: '', credit: '', notes: '' }])
   }
@@ -41,7 +42,7 @@ function ManualEntryForm({ onSaved, onCancel }: { onSaved: () => void; onCancel:
   const totalDebit  = lines.reduce((s, l) => s + (parseFloat(l.debit)  || 0), 0)
   const totalCredit = lines.reduce((s, l) => s + (parseFloat(l.credit) || 0), 0)
   const isBalanced  = Math.abs(totalDebit - totalCredit) < 0.01
-  const fmt = (n: number) => new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n)
+  // fmt imported from lib/format
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -114,13 +115,13 @@ function ManualEntryForm({ onSaved, onCancel }: { onSaved: () => void; onCancel:
                   </select>
                 </td>
                 <td className="px-2 py-1.5">
-                  <input type="number" min="0" step="0.01" value={line.debit}
+                  <NumberInput decimals={2} min="0" value={line.debit}
                     onChange={e => updateLine(i, 'debit', e.target.value)}
                     className="input text-xs text-right w-full"
                     placeholder="0.00" />
                 </td>
                 <td className="px-2 py-1.5">
-                  <input type="number" min="0" step="0.01" value={line.credit}
+                  <NumberInput decimals={2} min="0" value={line.credit}
                     onChange={e => updateLine(i, 'credit', e.target.value)}
                     className="input text-xs text-right w-full"
                     placeholder="0.00" />
@@ -172,9 +173,17 @@ export default function JournalView() {
   const [page, setPage]         = useState(1)
   const [loading, setLoading]   = useState(false)
   const [expanded, setExpanded] = useState<number | null>(null)
-  const [startDate, setStartDate] = useState('')
-  const [endDate, setEndDate]     = useState('')
+  const [typeFilter, setTypeFilter] = useState<'all' | 'auto' | 'manual'>('all')
+  const [accountFilter, setAccountFilter] = useState('')
+
+  // Default: start of current year → today
+  const _today = new Date()
+  const [startDate, setStartDate] = useState(`${_today.getFullYear()}-01-01`)
+  const [endDate, setEndDate]     = useState(_today.toISOString().split('T')[0])
   const [showModal, setShowModal] = useState(false)
+
+  useEffect(() => {
+  }, [])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -204,9 +213,23 @@ export default function JournalView() {
   }, [load])
 
   // reset page عند تغيير الفلاتر
-  useEffect(() => { setPage(1) }, [startDate, endDate])
+  useEffect(() => { setPage(1) }, [startDate, endDate, typeFilter, accountFilter])
 
-  const fmt = (n: number) => new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n)
+  // تطبيق الفلاتر على الـ entries المحملة
+  const filteredEntries = entries.filter(e => {
+    if (typeFilter === 'auto'   && !e.is_auto) return false
+    if (typeFilter === 'manual' &&  e.is_auto) return false
+    if (accountFilter) {
+      const hasAccount = e.lines?.some((l: any) =>
+        l.account_code?.toLowerCase().includes(accountFilter.toLowerCase()) ||
+        l.account_name?.toLowerCase().includes(accountFilter.toLowerCase())
+      )
+      if (!hasAccount) return false
+    }
+    return true
+  })
+
+  // fmt imported from lib/format
 
   return (
     <div className="flex flex-col gap-3">
@@ -219,7 +242,19 @@ export default function JournalView() {
           <input value={endDate} onChange={e => setEndDate(e.target.value)} className="input w-36" type="date" />
         </div>
         <button onClick={load} className="btn-secondary btn-sm">↻ Actualiser</button>
-        <span className="text-sm text-gray-500 ml-auto">{total} écriture(s)</span>
+        {/* فلتر النوع */}
+        <div className="flex rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 text-xs">
+          {([['all','Tous'],['auto','Auto'],['manual','Manuel']] as const).map(([v,l]) => (
+            <button key={v} onClick={() => setTypeFilter(v)}
+              className={`px-3 py-1.5 transition-all ${typeFilter === v ? 'bg-primary text-white' : 'bg-white dark:bg-gray-800 text-gray-600 hover:bg-gray-50'}`}>
+              {l}
+            </button>
+          ))}
+        </div>
+        {/* فلتر الحساب */}
+        <input value={accountFilter} onChange={e => setAccountFilter(e.target.value)}
+          className="input text-sm w-40" placeholder="Filtrer par compte..." />
+        <span className="text-sm text-gray-500 ml-auto">{filteredEntries.length} écriture(s)</span>
         <button onClick={() => setShowModal(true)} className="btn-primary btn-sm">
           + Saisie manuelle
         </button>
@@ -236,14 +271,14 @@ export default function JournalView() {
             </div>
           ))
         )}
-        {!loading && entries.length === 0 && (
+        {!loading && filteredEntries.length === 0 && (
           <div className="card p-12 text-center text-gray-400">
             <div className="text-4xl mb-3">📒</div>
             <div>Aucune écriture comptable</div>
             <div className="text-xs mt-1">Les écritures sont générées automatiquement lors de la confirmation des documents</div>
           </div>
         )}
-        {!loading && entries.map(e => (
+        {!loading && filteredEntries.map(e => (
           <div key={e.id} className="card overflow-hidden">
             <button
               onClick={() => setExpanded(expanded === e.id ? null : e.id)}

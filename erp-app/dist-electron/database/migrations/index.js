@@ -17,6 +17,12 @@ const _012_company_details_1 = require("./012_company_details");
 const _013_custom_templates_1 = require("./013_custom_templates");
 const _014_payment_reference_1 = require("./014_payment_reference");
 const _015_fix_payment_reference_1 = require("./015_fix_payment_reference");
+const _016_fill_period_id_1 = require("./016_fill_period_id");
+const _017_add_patente_1 = require("./017_add_patente");
+const _018_payment_validation_1 = require("./018_payment_validation");
+const _019_normalize_payment_refs_1 = require("./019_normalize_payment_refs");
+const _020_sequence_recycling_1 = require("./020_sequence_recycling");
+const _021_add_global_discount_1 = require("./021_add_global_discount");
 const MIGRATIONS = [
     { version: 1, name: 'initial', run: _001_initial_1.migration_001_initial },
     { version: 2, name: 'accounting', run: _002_accounting_1.migration_002_accounting },
@@ -34,6 +40,12 @@ const MIGRATIONS = [
     { version: 13, name: 'custom_templates', run: _013_custom_templates_1.migration_013_custom_templates },
     { version: 14, name: 'payment_reference', run: _014_payment_reference_1.migration_014_payment_reference },
     { version: 15, name: 'fix_payment_reference', run: _015_fix_payment_reference_1.migration_015_fix_payment_reference },
+    { version: 16, name: 'fill_period_id', run: _016_fill_period_id_1.migration_016_fill_period_id },
+    { version: 17, name: 'add_patente', run: _017_add_patente_1.migration_017_add_patente },
+    { version: 18, name: 'payment_validation', run: _018_payment_validation_1.migration_018_payment_validation },
+    { version: 19, name: 'normalize_payment_refs', run: _019_normalize_payment_refs_1.migration_019_normalize_payment_refs },
+    { version: 20, name: 'sequence_recycling', run: _020_sequence_recycling_1.migration_020_sequence_recycling },
+    { version: 21, name: 'add_global_discount', run: _021_add_global_discount_1.migration_021_add_global_discount },
 ];
 function runMigrations(db) {
     // جدول تتبع الإصدارات

@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { api } from '../lib/api'
 import { toast } from './ui/Toast'
+import { fmtFileSize } from '../lib/format'
 
 interface Attachment {
   name: string
@@ -60,11 +61,7 @@ export default function AttachmentsPanel({ entityType, entityId }: Props) {
     } catch (e: any) { toast(e.message, 'error') }
   }
 
-  const fmtSize = (bytes: number) => {
-    if (bytes < 1024) return `${bytes} B`
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-    return `${(bytes / 1024 / 1024).toFixed(1)} MB`
-  }
+  const fmtSize = fmtFileSize
 
   return (
     <div>

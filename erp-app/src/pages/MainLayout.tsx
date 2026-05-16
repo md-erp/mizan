@@ -3,6 +3,7 @@ import { useAuthStore } from '../store/auth.store'
 import { useAppStore } from '../store/app.store'
 import NotificationCenter from '../components/NotificationCenter'
 import SyncStatusBar from '../components/SyncStatusBar'
+import AccountingPeriodAlert from '../components/AccountingPeriodAlert'
 import { canAccess } from '../lib/permissions'
 import { api } from '../lib/api'
 import { emitRefresh } from '../lib/refresh'
@@ -158,6 +159,9 @@ export default function MainLayout() {
         </div>
       </div>
     </header>
+
+      {/* Accounting Period Alert */}
+      <AccountingPeriodAlert />
 
       {/* Page content */}
       <main className="flex-1 min-h-0 overflow-auto">

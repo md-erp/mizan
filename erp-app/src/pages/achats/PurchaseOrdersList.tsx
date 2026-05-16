@@ -1,3 +1,4 @@
+import { fmt } from '../../lib/format'
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { api } from '../../lib/api'
 import Modal from '../../components/ui/Modal'
@@ -5,9 +6,10 @@ import Drawer from '../../components/ui/Drawer'
 import PurchaseOrderForm from './PurchaseOrderForm'
 import DocumentDetail from '../../components/DocumentDetail'
 import SkeletonRows from '../../components/ui/SkeletonRows'
+import { docRowBg } from '../../lib/rowBg'
 import type { Document, PaginatedResponse } from '../../types'
 
-const fmt = (n: number) => new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n ?? 0)
+// fmt imported from lib/format
 
 const STATUS_CFG: Record<string, { label: string; cls: string }> = {
   draft:     { label: 'Brouillon', cls: 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300' },
@@ -152,7 +154,7 @@ export default function PurchaseOrdersList() {
                     if ((e.target as HTMLElement).closest('button')) return
                     setSelectedId(doc.id)
                   }}
-                  className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
+                  className={`cursor-pointer transition-colors ${docRowBg(doc.status)}`}>
                   <td className="px-3 py-3 text-center align-middle"><span className="font-mono text-xs font-semibold text-primary">{doc.number}</span></td>
                   <td className="px-3 py-3 text-center align-middle text-gray-500 text-xs">{new Date(doc.date).toLocaleDateString('fr-FR')}</td>
                   <td className="px-3 py-3 text-center align-middle font-medium truncate">{doc.party_name ?? '—'}</td>
@@ -197,7 +199,7 @@ export default function PurchaseOrdersList() {
               { label: 'Total HT',      value: filtered.reduce((s,d)=>s+d.total_ht,0),  color: 'text-gray-700 dark:text-gray-200', bg: 'bg-gray-50 dark:bg-gray-700/30' },
               { label: 'Total TVA',     value: filtered.reduce((s,d)=>s+d.total_tva,0), color: 'text-gray-500',                    bg: 'bg-gray-50 dark:bg-gray-700/30' },
               { label: 'En attente',    value: filtered.filter(d=>['draft','confirmed','partial'].includes(d.status)).reduce((s,d)=>s+d.total_ttc,0), color: 'text-amber-600', bg: 'bg-amber-50 dark:bg-amber-900/10' },
-              { label: 'Reçus (TTC)',   value: filtered.filter(d=>d.status==='received').reduce((s,d)=>s+d.total_ttc,0), color: 'text-green-600', bg: 'bg-green-50 dark:bg-green-900/10' },
+              { label: 'Reçus (TTC)',   value: filtered.filter(d=>(d.status as string)==='received').reduce((s,d)=>s+d.total_ttc,0), color: 'text-green-600', bg: 'bg-green-50 dark:bg-green-900/10' },
             ].map(r => (
               <div key={r.label} className={`rounded-xl p-4 ${r.bg}`}>
                 <div className="text-xs text-gray-400 mb-1">{r.label}</div>

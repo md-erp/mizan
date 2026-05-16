@@ -100,11 +100,13 @@ export function registerSettingsHandlers(): void {
     const db = getDb()
 
     if (doc_type === 'payment') {
-      const padded = `P-${String(seq).padStart(4, '0')}`
+      const year = new Date().getFullYear() % 100
+      const padded = `P-${year}-${seq}`
       const plain  = `P-${seq}`
+      const oldPadded = `P-${String(seq).padStart(4, '0')}`
       const exists = db.prepare(
-        'SELECT id FROM payments WHERE reference = ? OR reference = ?'
-      ).get(padded, plain) as any
+        'SELECT id FROM payments WHERE reference = ? OR reference = ? OR reference = ?'
+      ).get(padded, plain, oldPadded) as any
       if (exists) {
         let suggestion = seq + 1
         const allRefs = db.prepare("SELECT reference FROM payments WHERE reference LIKE 'P-%'").all() as any[]
@@ -145,9 +147,8 @@ export function registerSettingsHandlers(): void {
   handle('sequences:getNext', ({ doc_type }: { doc_type: string }) => {
     const db = getDb()
 
-    // المدفوعات — بدون سنة، تدعم صيغتين: P-0042 و P-42
+    // المدفوعات — بصيغة P-YY-XXXX
     if (doc_type === 'payment') {
-      // نجلب كل الأرقام ونستخرج أكبر قيمة عددية
       const allRefs = db.prepare(
         "SELECT reference FROM payments WHERE reference LIKE 'P-%'"
       ).all() as any[]
@@ -159,7 +160,6 @@ export function registerSettingsHandlers(): void {
         if (!isNaN(num) && num > maxSeq) maxSeq = num
       }
 
-      // نجد أصغر رقم متاح >= maxSeq+1
       let next = maxSeq + 1
       const usedSet = new Set(
         allRefs.map((r: any) => {
@@ -169,7 +169,8 @@ export function registerSettingsHandlers(): void {
       )
       while (usedSet.has(next)) next++
 
-      return { next, year: 0 }
+      const year = new Date().getFullYear() % 100
+      return { next, year }
     }
 
     // المستندات — نجد أصغر رقم متاح >= last_seq+1

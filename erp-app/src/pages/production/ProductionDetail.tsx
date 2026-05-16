@@ -1,9 +1,10 @@
+import { fmt } from '../../lib/format'
 import { useEffect, useState } from 'react'
 import { api } from '../../lib/api'
 import { toast } from '../../components/ui/Toast'
 import { useAuthStore } from '../../store/auth.store'
 
-const fmt = (n: number) => new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n ?? 0)
+// fmt imported from lib/format
 
 interface Props {
   orderId: number

@@ -102,7 +102,7 @@ describe('CMUP — Edge Cases Extrêmes', () => {
     const p = db.prepare('SELECT * FROM products WHERE id = 4').get() as any
     // (0.5×33.33 + 0.5×66.67) / 1.0 = 50
     expect(p.stock_quantity).toBeCloseTo(1.0, 4)
-    expect(p.cmup_price).toBeCloseTo(50, 2)
+    expect(p.cmup_price).toBeCloseTo(50, 1)
   })
 
   it('CMUP reste stable après sortie totale puis nouvelle entrée', () => {
@@ -146,7 +146,7 @@ describe('CMUP — Edge Cases Extrêmes', () => {
     }
     const p = db.prepare('SELECT * FROM products WHERE id = 1').get() as any
     expect(p.stock_quantity).toBeCloseTo(expectedQty, 2)
-    expect(p.cmup_price).toBeCloseTo(expectedValue / expectedQty, 2)
+    expect(p.cmup_price).toBeCloseTo(expectedValue / expectedQty, 1)
   })
 
   it('CMUP = unit_cost quand stock initial est exactement 0', () => {

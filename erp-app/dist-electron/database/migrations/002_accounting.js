@@ -76,10 +76,12 @@ function migration_002_accounting(db) {
       ('3121', 'Matières premières',                'asset',     3, 1),
       ('3151', 'Produits finis',                    'asset',     3, 1),
       ('3421', 'Clients',                           'asset',     3, 1),
+      ('3425', 'Effets à recevoir',                 'asset',     3, 1),
       ('3455', 'État — TVA récupérable sur charges','asset',     3, 1),
       ('3456', 'État — Crédit de TVA',              'asset',     3, 1),
       -- Classe 4
       ('4411', 'Fournisseurs',                      'liability', 4, 1),
+      ('4415', 'Effets à payer',                    'liability', 4, 1),
       ('4455', 'État — TVA facturée',               'liability', 4, 1),
       ('4456', 'État — TVA due',                    'liability', 4, 1),
       ('4481', 'Dettes sur acquisitions',           'liability', 4, 1),

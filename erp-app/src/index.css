@@ -37,6 +37,17 @@
   ::-webkit-scrollbar { width: 6px; height: 6px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { @apply bg-gray-300 rounded-full dark:bg-gray-600; }
+
+  /* ── إخفاء أسهم spinner من خانات الأرقام — الزيادة/النقصان بالكيبورد فقط ── */
+  input[type="number"]::-webkit-inner-spin-button,
+  input[type="number"]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type="number"] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
 }
 
 @layer components {

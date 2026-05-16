@@ -254,6 +254,7 @@ export interface DeviceConfig {
   company_email: string
   company_website: string
   company_cnss: string
+  company_patente: string
   company_bank_name: string
   company_bank_rib: string
   company_bank_account: string

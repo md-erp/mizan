@@ -35,7 +35,7 @@ function registerClientHandlers() {
         SELECT COALESCE(SUM(amount), 0) as t FROM payments
         WHERE party_id=? AND party_type='client'
           AND NOT (method IN ('cheque','lcn') AND status='pending')
-          AND status != 'bounced'
+          AND status NOT IN ('bounced', 'cancelled')
       `).get(client.id);
             const balance = (invRow.t ?? 0) - (payRow.t ?? 0);
             return { ...client, balance };
@@ -57,7 +57,7 @@ function registerClientHandlers() {
       SELECT COALESCE(SUM(amount), 0) as t FROM payments
       WHERE party_id=? AND party_type='client'
         AND NOT (method IN ('cheque','lcn') AND status='pending')
-        AND status != 'bounced'
+        AND status NOT IN ('bounced', 'cancelled')
     `).get(id);
         const balance = (invRow2.t ?? 0) - (payRow2.t ?? 0);
         return { ...client, balance };

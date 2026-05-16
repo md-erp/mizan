@@ -16,5 +16,6 @@
     },
     "types": ["jest", "node"]
   },
-  "include": ["electron"]
+  "include": ["electron/**/*"],
+  "exclude": ["electron/**/*.test.ts", "electron/**/__tests__"]
 }

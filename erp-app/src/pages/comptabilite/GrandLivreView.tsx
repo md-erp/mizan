@@ -1,30 +1,53 @@
+import { fmt } from '../../lib/format'
 import { useEffect, useState } from 'react'
 import { api } from '../../lib/api'
 import type { Account } from '../../types'
+import PrintPreviewModal from '../../components/ui/PrintPreviewModal'
 
 export default function GrandLivreView() {
 
   const [accounts, setAccounts] = useState<Account[]>([])
   const [selectedAccount, setSelectedAccount] = useState<number>(0)
   const [lines, setLines] = useState<any[]>([])
-  const [startDate, setStartDate] = useState('')
-  const [endDate, setEndDate] = useState('')
+
+  // Default: start of current year → today
+  const _today = new Date()
+  const [startDate, setStartDate] = useState(`${_today.getFullYear()}-01-01`)
+  const [endDate, setEndDate] = useState(_today.toISOString().split('T')[0])
   const [loading, setLoading] = useState(false)
+  const [previewHtml, setPreviewHtml] = useState<string | null>(null)
+  const [showAnnulations, setShowAnnulations] = useState(true)
 
   useEffect(() => {
     api.getAccounts().then((r: any) => setAccounts(r ?? []))
   }, [])
 
-  async function load() {
+  useEffect(() => {
+    const h = () => load()
+    window.addEventListener('app:refresh', h)
+    return () => window.removeEventListener('app:refresh', h)
+  }, [selectedAccount, startDate, endDate])
+
+  async function load(showAnn = showAnnulations) {
     if (!selectedAccount) return
     setLoading(true)
     try {
-      const result = await api.getGrandLivre({ account_id: selectedAccount, start_date: startDate || undefined, end_date: endDate || undefined }) as any[]
+      const result = await api.getGrandLivre({
+        account_id: selectedAccount,
+        start_date: startDate || undefined,
+        end_date: endDate || undefined,
+        hide_annulations: !showAnn,
+      } as any) as any[]
       setLines(result)
     } finally { setLoading(false) }
   }
 
-  const fmt = (n: number) => new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n)
+  function handleToggle(val: boolean) {
+    setShowAnnulations(val)
+    load(val)
+  }
+
+  // fmt imported from lib/format
   const totalDebit  = lines.reduce((s, l) => s + l.debit, 0)
   const totalCredit = lines.reduce((s, l) => s + l.credit, 0)
 
@@ -37,12 +60,23 @@ export default function GrandLivreView() {
         </select>
         <input value={startDate} onChange={e => setStartDate(e.target.value)} className="input w-36" type="date" placeholder="Du" />
         <input value={endDate} onChange={e => setEndDate(e.target.value)} className="input w-36" type="date" placeholder="Au" />
-        <button onClick={load} disabled={!selectedAccount} className="btn-primary">Afficher</button>
+        <button onClick={() => load()} disabled={!selectedAccount} className="btn-primary">Afficher</button>
+
+        {/* Toggle إظهار/إخفاء الإلغاءات */}
+        <label className="flex items-center gap-2 cursor-pointer select-none ml-2">
+          <div
+            onClick={() => handleToggle(!showAnnulations)}
+            className={`relative w-9 h-5 rounded-full transition-colors ${showAnnulations ? 'bg-primary' : 'bg-gray-300 dark:bg-gray-600'}`}
+          >
+            <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${showAnnulations ? 'translate-x-4' : 'translate-x-0.5'}`} />
+          </div>
+          <span className="text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">
+            Afficher les annulations
+          </span>
+        </label>
         {lines.length > 0 && (
           <button onClick={() => {
             const account = accounts.find(a => a.id === selectedAccount)
-            const printWin = window.open('', '_blank')
-            if (!printWin) return
             const rows_html = lines.map(l => `<tr>
               <td>${new Date(l.date).toLocaleDateString('fr-FR')}</td>
               <td style="font-family:monospace;color:#1E3A5F">${l.reference ?? ''}</td>
@@ -51,24 +85,24 @@ export default function GrandLivreView() {
               <td style="text-align:right;color:#dc2626">${l.credit > 0 ? fmt(l.credit) : ''}</td>
               <td style="text-align:right;font-weight:bold;color:${l.balance >= 0 ? '#15803d' : '#dc2626'}">${fmt(Math.abs(l.balance))} ${l.balance >= 0 ? 'D' : 'C'}</td>
             </tr>`).join('')
-            printWin.document.write(`<!DOCTYPE html><html><head><title>Grand Livre</title>
+            const html = `<!DOCTYPE html><html><head><title>Grand Livre</title>
               <style>body{font-family:Arial,sans-serif;font-size:12px;padding:20px}
               h2{color:#1E3A5F}table{width:100%;border-collapse:collapse}
               th{background:#1E3A5F;color:white;padding:8px;text-align:left}
               td{padding:6px 8px;border-bottom:1px solid #eee}
               tfoot td{font-weight:bold;background:#f0f4f8;border-top:2px solid #1E3A5F}
+              @page{size:A4;margin:15mm}
               </style></head><body>
               <h2>Grand Livre — ${account?.code} ${account?.name}</h2>
-              <p style="color:#666;font-size:11px">Période: ${startDate || '—'} → ${endDate || '—'}</p>
+              <p style="color:#666;font-size:11px">Période: ${startDate || '—'} → ${endDate || '—'} | Généré le ${new Date().toLocaleDateString('fr-FR')}</p>
               <table><thead><tr><th>Date</th><th>Référence</th><th>Description</th><th style="text-align:right">Débit</th><th style="text-align:right">Crédit</th><th style="text-align:right">Solde</th></tr></thead>
               <tbody>${rows_html}</tbody>
               <tfoot><tr><td colspan="3" style="text-align:right">Totaux</td>
               <td style="text-align:right;color:#15803d">${fmt(totalDebit)}</td>
               <td style="text-align:right;color:#dc2626">${fmt(totalCredit)}</td>
               <td style="text-align:right">${fmt(Math.abs(totalDebit - totalCredit))} ${totalDebit >= totalCredit ? 'D' : 'C'}</td>
-              </tr></tfoot></table></body></html>`)
-            printWin.document.close()
-            printWin.print()
+              </tr></tfoot></table></body></html>`
+            setPreviewHtml(html)
           }} className="btn-secondary btn-sm ml-auto">📄 PDF</button>
         )}
       </div>
@@ -137,6 +171,15 @@ export default function GrandLivreView() {
 
       {!loading && lines.length === 0 && selectedAccount > 0 && (
         <div className="card p-12 text-center text-gray-400">Aucun mouvement pour ce compte</div>
+      )}
+
+      {previewHtml && (
+        <PrintPreviewModal
+          html={previewHtml}
+          title={`Grand Livre — ${accounts.find(a => a.id === selectedAccount)?.code ?? ''} ${accounts.find(a => a.id === selectedAccount)?.name ?? ''}`}
+          filename={`Grand-Livre-${accounts.find(a => a.id === selectedAccount)?.code ?? 'compte'}-${startDate}-${endDate}.pdf`}
+          onClose={() => setPreviewHtml(null)}
+        />
       )}
     </div>
   )

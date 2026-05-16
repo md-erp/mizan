@@ -39,7 +39,7 @@ function registerReportHandlers() {
 }
 function getSalesReport(db, filters) {
     const params = [];
-    let where = "WHERE d.type = 'invoice' AND d.is_deleted = 0 AND d.status != 'cancelled'";
+    let where = "WHERE d.type = 'invoice' AND d.is_deleted = 0 AND d.status != 'cancelled' AND d.status != 'draft'";
     if (filters.start_date) {
         where += ' AND d.date >= ?';
         params.push(filters.start_date);
@@ -64,7 +64,7 @@ function getSalesReport(db, filters) {
 }
 function getPurchasesReport(db, filters) {
     const params = [];
-    let where = "WHERE d.type IN ('purchase_invoice','import_invoice') AND d.is_deleted = 0";
+    let where = "WHERE d.type IN ('purchase_invoice','import_invoice') AND d.is_deleted = 0 AND d.status != 'cancelled' AND d.status != 'draft'";
     if (filters.start_date) {
         where += ' AND d.date >= ?';
         params.push(filters.start_date);
@@ -98,12 +98,19 @@ function getReceivablesReport(db, _filters) {
     return db.prepare(`
     SELECT c.name as client_name, c.phone, c.ice,
       COALESCE(SUM(d.total_ttc), 0) as total_invoiced,
-      COALESCE(SUM(pa.amount), 0) as total_paid,
-      COALESCE(SUM(d.total_ttc), 0) - COALESCE(SUM(pa.amount), 0) as balance
+      COALESCE((
+        SELECT SUM(pa2.amount) FROM payment_allocations pa2
+        JOIN payments p2 ON p2.id = pa2.payment_id
+        WHERE pa2.document_id = d.id AND p2.status NOT IN ('cancelled','bounced')
+      ), 0) as total_paid,
+      COALESCE(SUM(d.total_ttc), 0) - COALESCE((
+        SELECT SUM(pa2.amount) FROM payment_allocations pa2
+        JOIN payments p2 ON p2.id = pa2.payment_id
+        WHERE pa2.document_id = d.id AND p2.status NOT IN ('cancelled','bounced')
+      ), 0) as balance
     FROM clients c
     LEFT JOIN documents d ON d.party_id = c.id AND d.party_type = 'client'
       AND d.type = 'invoice' AND d.is_deleted = 0 AND d.status != 'cancelled'
-    LEFT JOIN payment_allocations pa ON pa.document_id = d.id
     GROUP BY c.id
     HAVING balance > 0
     ORDER BY balance DESC
@@ -158,7 +165,7 @@ function getProfitLossReport(db, filters) {
 }
 function getTvaDetailReport(db, filters) {
     const params = [];
-    let where = "WHERE d.is_deleted = 0 AND d.status != 'cancelled'";
+    let where = "WHERE d.is_deleted = 0 AND d.status != 'cancelled' AND d.status != 'draft'";
     if (filters.start_date) {
         where += ' AND d.date >= ?';
         params.push(filters.start_date);
@@ -208,7 +215,7 @@ function getStockMovementsReport(db, filters) {
 }
 function getPaymentsReport(db, filters) {
     const params = [];
-    let where = 'WHERE 1=1';
+    let where = "WHERE p.status != 'cancelled'";
     if (filters.start_date) {
         where += ' AND p.date >= ?';
         params.push(filters.start_date);
@@ -235,17 +242,23 @@ function getPaymentsReport(db, filters) {
   `).all(...params);
 }
 function getPayablesReport(db, _filters) {
-    // تقرير الذمم الدائنة — ديون الموردين
     return db.prepare(`
     SELECT s.name as supplier_name, s.phone, s.ice,
       COALESCE(SUM(d.total_ttc), 0) as total_invoiced,
-      COALESCE(SUM(pa.amount), 0)   as total_paid,
-      COALESCE(SUM(d.total_ttc), 0) - COALESCE(SUM(pa.amount), 0) as balance
+      COALESCE((
+        SELECT SUM(pa2.amount) FROM payment_allocations pa2
+        JOIN payments p2 ON p2.id = pa2.payment_id
+        WHERE pa2.document_id = d.id AND p2.status NOT IN ('cancelled','bounced')
+      ), 0) as total_paid,
+      COALESCE(SUM(d.total_ttc), 0) - COALESCE((
+        SELECT SUM(pa2.amount) FROM payment_allocations pa2
+        JOIN payments p2 ON p2.id = pa2.payment_id
+        WHERE pa2.document_id = d.id AND p2.status NOT IN ('cancelled','bounced')
+      ), 0) as balance
     FROM suppliers s
     LEFT JOIN documents d ON d.party_id = s.id AND d.party_type = 'supplier'
       AND d.type IN ('purchase_invoice','import_invoice')
       AND d.is_deleted = 0 AND d.status != 'cancelled'
-    LEFT JOIN payment_allocations pa ON pa.document_id = d.id
     GROUP BY s.id
     HAVING balance > 0
     ORDER BY balance DESC
@@ -259,31 +272,42 @@ function getOverdueReport(db, filters) {
         extra += ' AND d.party_id = ?';
         extraParams.push(filters.client_id);
     }
+    // Use a subquery wrapper to filter on the computed 'remaining' column
+    // (HAVING on a non-aggregate query is not valid SQL)
     return db.prepare(`
-    SELECT
-      d.number,
-      d.date,
-      di.due_date,
-      c.name as client_name,
-      c.phone,
-      d.total_ttc,
-      COALESCE(SUM(pa.amount), 0) as total_paid,
-      d.total_ttc - COALESCE(SUM(pa.amount), 0) as remaining,
-      CAST(julianday(?) - julianday(di.due_date) AS INTEGER) as days_overdue,
-      d.status
-    FROM documents d
-    JOIN doc_invoices di ON di.document_id = d.id
-    LEFT JOIN clients c ON c.id = d.party_id
-    LEFT JOIN payment_allocations pa ON pa.document_id = d.id
-    WHERE d.type = 'invoice'
-      AND d.is_deleted = 0
-      AND d.status NOT IN ('paid', 'cancelled', 'draft')
-      AND di.due_date IS NOT NULL
-      AND di.due_date != ''
-      AND di.due_date < ?
-      ${extra}
-    GROUP BY d.id
-    HAVING remaining > 0.01
+    SELECT * FROM (
+      SELECT
+        d.id,
+        d.number,
+        d.date,
+        di.due_date,
+        c.name as client_name,
+        c.phone,
+        d.total_ttc,
+        COALESCE((
+          SELECT SUM(pa2.amount) FROM payment_allocations pa2
+          JOIN payments p2 ON p2.id = pa2.payment_id
+          WHERE pa2.document_id = d.id AND p2.status NOT IN ('cancelled','bounced')
+        ), 0) as total_paid,
+        d.total_ttc - COALESCE((
+          SELECT SUM(pa2.amount) FROM payment_allocations pa2
+          JOIN payments p2 ON p2.id = pa2.payment_id
+          WHERE pa2.document_id = d.id AND p2.status NOT IN ('cancelled','bounced')
+        ), 0) as remaining,
+        CAST(julianday(?) - julianday(di.due_date) AS INTEGER) as days_overdue,
+        d.status
+      FROM documents d
+      JOIN doc_invoices di ON di.document_id = d.id
+      LEFT JOIN clients c ON c.id = d.party_id
+      WHERE d.type = 'invoice'
+        AND d.is_deleted = 0
+        AND d.status NOT IN ('paid', 'cancelled', 'draft')
+        AND di.due_date IS NOT NULL
+        AND di.due_date != ''
+        AND di.due_date < ?
+        ${extra}
+    )
+    WHERE remaining > 0.01
     ORDER BY days_overdue DESC
   `).all(...extraParams);
 }

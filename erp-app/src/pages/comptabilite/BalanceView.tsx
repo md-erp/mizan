@@ -1,13 +1,22 @@
+import { fmt } from '../../lib/format'
 import { useEffect, useState } from 'react'
 import { api } from '../../lib/api'
 import { toast } from '../../components/ui/Toast'
+import PrintPreviewModal from '../../components/ui/PrintPreviewModal'
 
 export default function BalanceView() {
 
   const [rows, setRows] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
-  const [startDate, setStartDate] = useState('')
-  const [endDate, setEndDate] = useState('')
+  const [previewHtml, setPreviewHtml] = useState<string | null>(null)
+
+  // Default: start of current year → today
+  const today = new Date()
+  const defaultStart = `${today.getFullYear()}-01-01`
+  const defaultEnd = today.toISOString().split('T')[0]
+
+  const [startDate, setStartDate] = useState(defaultStart)
+  const [endDate, setEndDate] = useState(defaultEnd)
 
   async function load() {
     setLoading(true)
@@ -25,7 +34,7 @@ export default function BalanceView() {
     return () => window.removeEventListener('app:refresh', h)
   }, [])
 
-  const fmt = (n: number) => new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n)
+  // fmt imported from lib/format
 
   const totalDebit  = rows.reduce((s, r) => s + r.total_debit, 0)
   const totalCredit = rows.reduce((s, r) => s + r.total_credit, 0)
@@ -47,43 +56,37 @@ export default function BalanceView() {
             toast('✅ Fichier Excel enregistré')
           } catch (e: any) { toast(e.message, 'error') }
         }}>📥 Excel</button>
-        <button className="btn-secondary btn-sm" onClick={async () => {
-          try {
-            // نصدر HTML ثم نفتح نافذة طباعة
-            const printWin = window.open('', '_blank')
-            if (!printWin) return
-            const title = 'Balance Comptable'
-            const rows_html = rows.map(r => {
-              const solde = r.total_debit - r.total_credit
-              return `<tr>
-                <td style="font-family:monospace;font-weight:bold;color:#1E3A5F">${r.code}</td>
-                <td>${r.name}</td>
-                <td style="text-align:right">${fmt(r.total_debit)}</td>
-                <td style="text-align:right">${fmt(r.total_credit)}</td>
-                <td style="text-align:right;color:#15803d">${solde > 0 ? fmt(solde) : ''}</td>
-                <td style="text-align:right;color:#dc2626">${solde < 0 ? fmt(Math.abs(solde)) : ''}</td>
-              </tr>`
-            }).join('')
-            printWin.document.write(`<!DOCTYPE html><html><head><title>${title}</title>
-              <style>body{font-family:Arial,sans-serif;font-size:12px;padding:20px}
-              h2{color:#1E3A5F}table{width:100%;border-collapse:collapse}
-              th{background:#1E3A5F;color:white;padding:8px;text-align:left}
-              td{padding:6px 8px;border-bottom:1px solid #eee}
-              tfoot td{font-weight:bold;background:#f0f4f8;border-top:2px solid #1E3A5F}
-              </style></head><body>
-              <h2>${title}</h2>
-              <p style="color:#666;font-size:11px">Période: ${startDate || '—'} → ${endDate || '—'} | Généré le ${new Date().toLocaleDateString('fr-FR')}</p>
-              <table><thead><tr><th>Code</th><th>Intitulé</th><th style="text-align:right">Total Débit</th><th style="text-align:right">Total Crédit</th><th style="text-align:right">Solde Débiteur</th><th style="text-align:right">Solde Créditeur</th></tr></thead>
-              <tbody>${rows_html}</tbody>
-              <tfoot><tr><td colspan="2" style="text-align:right">TOTAUX</td>
-              <td style="text-align:right">${fmt(totalDebit)}</td>
-              <td style="text-align:right">${fmt(totalCredit)}</td>
-              <td style="text-align:right;color:#15803d">${totalDebit > totalCredit ? fmt(totalDebit - totalCredit) : ''}</td>
-              <td style="text-align:right;color:#dc2626">${totalCredit > totalDebit ? fmt(totalCredit - totalDebit) : ''}</td>
-              </tr></tfoot></table></body></html>`)
-            printWin.document.close()
-            printWin.print()
-          } catch (e: any) { toast(e.message, 'error') }
+        <button className="btn-secondary btn-sm" onClick={() => {
+          const rows_html = rows.map(r => {
+            const solde = r.total_debit - r.total_credit
+            return `<tr>
+              <td style="font-family:monospace;font-weight:bold;color:#1E3A5F">${r.code}</td>
+              <td>${r.name}</td>
+              <td style="text-align:right">${fmt(r.total_debit)}</td>
+              <td style="text-align:right">${fmt(r.total_credit)}</td>
+              <td style="text-align:right;color:#15803d">${solde > 0 ? fmt(solde) : ''}</td>
+              <td style="text-align:right;color:#dc2626">${solde < 0 ? fmt(Math.abs(solde)) : ''}</td>
+            </tr>`
+          }).join('')
+          const html = `<!DOCTYPE html><html><head><title>Balance Comptable</title>
+            <style>body{font-family:Arial,sans-serif;font-size:12px;padding:20px}
+            h2{color:#1E3A5F}table{width:100%;border-collapse:collapse}
+            th{background:#1E3A5F;color:white;padding:8px;text-align:left}
+            td{padding:6px 8px;border-bottom:1px solid #eee}
+            tfoot td{font-weight:bold;background:#f0f4f8;border-top:2px solid #1E3A5F}
+            @page{size:A4;margin:15mm}
+            </style></head><body>
+            <h2>Balance Comptable</h2>
+            <p style="color:#666;font-size:11px">Période: ${startDate || '—'} → ${endDate || '—'} | Généré le ${new Date().toLocaleDateString('fr-FR')}</p>
+            <table><thead><tr><th>Code</th><th>Intitulé</th><th style="text-align:right">Total Débit</th><th style="text-align:right">Total Crédit</th><th style="text-align:right">Solde Débiteur</th><th style="text-align:right">Solde Créditeur</th></tr></thead>
+            <tbody>${rows_html}</tbody>
+            <tfoot><tr><td colspan="2" style="text-align:right">TOTAUX</td>
+            <td style="text-align:right">${fmt(totalDebit)}</td>
+            <td style="text-align:right">${fmt(totalCredit)}</td>
+            <td style="text-align:right;color:#15803d">${totalDebit > totalCredit ? fmt(totalDebit - totalCredit) : ''}</td>
+            <td style="text-align:right;color:#dc2626">${totalCredit > totalDebit ? fmt(totalCredit - totalDebit) : ''}</td>
+            </tr></tfoot></table></body></html>`
+          setPreviewHtml(html)
         }}>📄 PDF</button>
       </div>
 
@@ -144,6 +147,15 @@ export default function BalanceView() {
           </tfoot>
         </table>
       </div>
+
+      {previewHtml && (
+        <PrintPreviewModal
+          html={previewHtml}
+          title="Balance Comptable"
+          filename={`Balance-${startDate}-${endDate}.pdf`}
+          onClose={() => setPreviewHtml(null)}
+        />
+      )}
     </div>
   )
 }

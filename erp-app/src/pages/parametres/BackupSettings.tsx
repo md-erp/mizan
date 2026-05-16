@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../../lib/api'
 import { toast } from '../../components/ui/Toast'
 import ConfirmDialog from '../../components/ui/ConfirmDialog'
+import { fmtFileSize } from '../../lib/format'
 
 export default function BackupSettings() {
   const [backups, setBackups]     = useState<any[]>([])
@@ -76,11 +77,7 @@ export default function BackupSettings() {
     }
   }
 
-  const fmtSize = (bytes: number) => {
-    if (bytes < 1024) return `${bytes} B`
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-    return `${(bytes / 1024 / 1024).toFixed(1)} MB`
-  }
+  const fmtSize = fmtFileSize
 
   return (
     <div className="max-w-2xl space-y-6">

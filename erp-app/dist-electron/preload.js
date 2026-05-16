@@ -46,6 +46,7 @@ const api = {
     updateDocument: (data) => electron_1.ipcRenderer.invoke('documents:update', data),
     confirmDocument: (id) => electron_1.ipcRenderer.invoke('documents:confirm', id),
     cancelDocument: (id) => electron_1.ipcRenderer.invoke('documents:cancel', id),
+    deleteDraft: (id) => electron_1.ipcRenderer.invoke('documents:deleteDraft', id),
     convertDocument: (data) => electron_1.ipcRenderer.invoke('documents:convert', data),
     linkDocuments: (data) => electron_1.ipcRenderer.invoke('documents:link', data),
     getPOReceiptStatus: (id) => electron_1.ipcRenderer.invoke('documents:getPOReceiptStatus', id),
@@ -53,10 +54,13 @@ const api = {
     getDocumentTimeline: (id) => electron_1.ipcRenderer.invoke('documents:getTimeline', id),
     getCancelImpact: (id) => electron_1.ipcRenderer.invoke('documents:getCancelImpact', id),
     cancelWithOptions: (data) => electron_1.ipcRenderer.invoke('documents:cancelWithOptions', data),
+    smartEditDocument: (data) => electron_1.ipcRenderer.invoke('documents:smartEdit', data),
+    updateSafeFields: (data) => electron_1.ipcRenderer.invoke('documents:updateSafeFields', data),
     // --- Payments ---
     getPayments: (filters) => electron_1.ipcRenderer.invoke('payments:getAll', filters),
     createPayment: (data) => electron_1.ipcRenderer.invoke('payments:create', data),
     updatePayment: (data) => electron_1.ipcRenderer.invoke('payments:update', data),
+    cancelPayment: (data) => electron_1.ipcRenderer.invoke('payments:cancel', data),
     getPaymentPaidAmount: (docId) => electron_1.ipcRenderer.invoke('payments:getPaidAmount', docId),
     // --- Purchases (يستخدم نفس documents handler) ---
     getPurchaseOrders: (filters) => electron_1.ipcRenderer.invoke('documents:getAll', { ...filters, type: 'purchase_order' }),
@@ -85,6 +89,11 @@ const api = {
     getTvaDeclaration: (filters) => electron_1.ipcRenderer.invoke('accounting:getTva', filters),
     getPeriods: () => electron_1.ipcRenderer.invoke('accounting:getPeriods'),
     closePeriod: (id) => electron_1.ipcRenderer.invoke('accounting:closePeriod', id),
+    // Accounting Periods
+    getAccountingPeriods: () => electron_1.ipcRenderer.invoke('accounting:getPeriods'),
+    createAccountingPeriod: (data) => electron_1.ipcRenderer.invoke('accounting:createPeriod', data),
+    updateAccountingPeriod: (data) => electron_1.ipcRenderer.invoke('accounting:updatePeriod', data),
+    deleteAccountingPeriod: (id) => electron_1.ipcRenderer.invoke('accounting:deletePeriod', id),
     // --- Reports ---
     getReport: (data) => electron_1.ipcRenderer.invoke('reports:get', data),
     // --- Notifications ---
@@ -155,6 +164,10 @@ const api = {
     sequencesSet: (d) => electron_1.ipcRenderer.invoke('sequences:set', d),
     sequencesGetNext: (d) => electron_1.ipcRenderer.invoke('sequences:getNext', d),
     sequencesCheck: (d) => electron_1.ipcRenderer.invoke('sequences:check', d),
+    sequencesGetRecycled: (t) => electron_1.ipcRenderer.invoke('sequences:getRecycled', t),
+    // --- Fix Accounting ---
+    checkCancelledInvoicesStatus: () => electron_1.ipcRenderer.invoke('fix:checkCancelledInvoicesStatus'),
+    fixCancelledInvoicesAccounting: () => electron_1.ipcRenderer.invoke('fix:cancelledInvoicesAccounting'),
     // --- Push Notifications from Main ─────────────────────────
     onSyncUpdated: (cb) => {
         electron_1.ipcRenderer.on('sync:updated', (_e, data) => cb(data));

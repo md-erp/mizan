@@ -1,5 +1,32 @@
 import Database from 'better-sqlite3'
 
+// ==========================================
+// UTILITAIRES DE PRÉCISION NUMÉRIQUE
+// SQLite stocke REAL en IEEE 754 double.
+// On arrondit systématiquement pour éviter
+// les erreurs de virgule flottante (ex: 1.9999999 au lieu de 2).
+// ROUND_HALF_UP conforme au contexte comptable CGNC.
+// ==========================================
+
+/** Arrondit à N décimales (ROUND_HALF_UP) */
+export function round(value: number, decimals: number): number {
+  const factor = Math.pow(10, decimals)
+  return Math.round((value + Number.EPSILON) * factor) / factor
+}
+
+/** Arrondit une quantité à 4 décimales */
+export function roundQty(value: number): number {
+  return round(value, 4)
+}
+
+/** Arrondit un montant financier à 2 décimales */
+export function roundAmt(value: number): number {
+  return round(value, 2)
+}
+
+/** Epsilon pour comparaisons financières (0.005 MAD) */
+const FINANCIAL_EPSILON = 0.005
+
 interface StockMovementInput {
   product_id: number
   type: 'in' | 'out'
@@ -75,18 +102,21 @@ export function applyMovement(
 
   if (mov.type === 'in') {
     // CMUP = (stock_actuel × cmup_actuel + quantité × coût_unitaire) / (stock_actuel + quantité)
-    const totalValue = product.stock_quantity * product.cmup_price + mov.quantity * mov.unit_cost
-    newQuantity = product.stock_quantity + mov.quantity
-    newCmup = newQuantity > 0 ? totalValue / newQuantity : mov.unit_cost
+    const totalValue = roundAmt(
+      roundAmt(product.stock_quantity * product.cmup_price) +
+      roundAmt(mov.quantity * mov.unit_cost)
+    )
+    newQuantity = roundQty(product.stock_quantity + mov.quantity)
+    newCmup     = newQuantity > 0 ? roundAmt(totalValue / newQuantity) : roundAmt(mov.unit_cost)
   } else {
     // Sortie: on vérifie le stock disponible
-    if (product.stock_quantity < mov.quantity) {
+    if (roundQty(product.stock_quantity) < roundQty(mov.quantity) - 0.0001) {
       throw new Error(
         `Stock insuffisant pour ${product.name}: disponible ${product.stock_quantity}, demandé ${mov.quantity}`
       )
     }
-    newQuantity = product.stock_quantity - mov.quantity
-    newCmup = product.cmup_price // CMUP ne change pas à la sortie
+    newQuantity = roundQty(product.stock_quantity - mov.quantity)
+    newCmup = roundAmt(product.cmup_price) // CMUP ne change pas à la sortie
   }
 
   const tx = db.transaction(() => {

@@ -1,3 +1,4 @@
+import { fmt } from '../../lib/format'
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { api } from '../../lib/api'
 import { toast } from '../../components/ui/Toast'
@@ -10,7 +11,7 @@ import SkeletonRows from '../../components/ui/SkeletonRows'
 import ConfirmDialog from '../../components/ui/ConfirmDialog'
 import type { Client, Supplier } from '../../types'
 
-const fmt = (n: number) => new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n ?? 0)
+// fmt imported from lib/format
 const LIMIT = 50
 
 interface Props { type: 'client' | 'supplier' }
@@ -221,7 +222,7 @@ export default function PartiesList({
       </Modal>
 
       <Drawer open={selectedId !== null} onClose={() => setSelectedId(null)}
-        title={'Fiche ' + label} width="w-[720px]">
+        title={'Fiche ' + label} defaultWidth={720}>
         {selectedId !== null && (
           <PartyDetail id={selectedId} type={type}
             onClose={() => setSelectedId(null)} />

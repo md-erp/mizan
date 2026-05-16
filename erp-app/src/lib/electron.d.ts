@@ -60,6 +60,13 @@ declare global {
       getDocumentTimeline?: (id: number) => Promise<any>
       getCancelImpact: (id: number) => Promise<any>
       cancelWithOptions: (d: unknown) => Promise<any>
+      smartEdit: (d: { id: number; userId?: number }) => Promise<{
+        success: boolean
+        avoirId: number
+        newDocId: number
+        newDocNumber: string
+        warning: string | null
+      }>
 
       // Payments
       getPayments: (f?: unknown) => Promise<any>

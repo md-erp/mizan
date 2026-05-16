@@ -1,3 +1,4 @@
+import { fmt } from '../../lib/format'
 import { useState, useEffect } from 'react'
 import { useAuthStore } from '../../store/auth.store'
 import { api } from '../../lib/api'
@@ -8,7 +9,7 @@ import type { Product } from '../../types'
 interface OutputLine { product_id: number; quantity: number; search: string }
 interface Props { onSaved: () => void; onCancel: () => void }
 
-const fmt = (n: number) => new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n ?? 0)
+// fmt imported from lib/format
 
 export default function TransformationForm({ onSaved, onCancel }: Props) {
   const [allProducts, setAllProducts]     = useState<Product[]>([])
@@ -101,7 +102,7 @@ export default function TransformationForm({ onSaved, onCancel }: Props) {
         <div>
           <label className="block text-sm font-medium mb-1">Quantité entrée</label>
           <input value={inputQty} onChange={e => setInputQty(Number(e.target.value))}
-            className="input" type="number" min="0.01" step="0.01" />
+            className="input" type="number" step="0.01" min="0.01" />
         </div>
       </div>
 
@@ -109,7 +110,7 @@ export default function TransformationForm({ onSaved, onCancel }: Props) {
         <div>
           <label className="block text-sm font-medium mb-1">Coût transformation / unité (MAD)</label>
           <input value={costPerUnit} onChange={e => setCostPerUnit(Number(e.target.value))}
-            className="input" type="number" min="0" step="0.01" />
+            className="input" type="number" step="0.01" min="0" />
         </div>
         <div>
           <label className="block text-sm font-medium mb-1">Date</label>
@@ -182,7 +183,7 @@ export default function TransformationForm({ onSaved, onCancel }: Props) {
                           idx === i ? { ...x, quantity: Number(e.target.value) } : x
                         ))}
                         className="input text-xs py-1.5 text-right w-full"
-                        type="number" min="0.01" step="0.01"
+                        type="number" step="0.01" min="0.01"
                       />
                     </td>
                     <td className="px-3 py-2 text-right text-xs font-semibold text-primary">

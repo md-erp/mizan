@@ -23,6 +23,7 @@ const import_handler_1 = require("./import.handler");
 const attachments_handler_1 = require("./attachments.handler");
 const audit_handler_1 = require("./audit.handler");
 const sync_handler_1 = require("./sync.handler");
+const fix_accounting_handler_1 = require("./fix-accounting.handler");
 function registerAllHandlers() {
     (0, config_handler_1.registerConfigHandlers)();
     (0, auth_handler_1.registerAuthHandlers)();
@@ -44,6 +45,7 @@ function registerAllHandlers() {
     (0, attachments_handler_1.registerAttachmentsHandlers)();
     (0, audit_handler_1.registerAuditHandlers)();
     (0, sync_handler_1.registerSyncHandlers)();
+    (0, fix_accounting_handler_1.registerFixAccountingHandlers)();
 }
 // Helper: wrapper موحد لكل handler
 function handle(channel, fn) {

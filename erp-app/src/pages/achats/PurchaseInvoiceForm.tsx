@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react'
-import { useForm, useFieldArray } from 'react-hook-form'
+import { useForm, useFieldArray, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { api } from '../../lib/api'
 import { toast } from '../../components/ui/Toast'
 import FormField from '../../components/ui/FormField'
+import DateOffsetField from '../../components/ui/DateOffsetField'
 import { PartySelector } from '../../components/ui/PartySelector'
 import { LinesTable, getDefaultTva, LinesTotals } from '../../components/ui/LinesTable'
+import NumberInput from '../../components/ui/NumberInput'
 import type { Product } from '../../types'
 import DocumentNumberField from '../../components/ui/DocumentNumberField'
 
@@ -17,11 +19,21 @@ const PAYMENT_METHODS = [
   { value: 'lcn',    label: 'LCN' },
 ]
 
+/** Retourne une date ISO (YYYY-MM-DD) décalée de `days` jours depuis aujourd'hui */
+function addDays(days: number): string {
+  const d = new Date()
+  d.setDate(d.getDate() + days)
+  return d.toISOString().split('T')[0]
+}
+
 const schema = z.object({
   date:           z.string().min(1, 'Date requise'),
   due_date:       z.string().optional(),
   party_id:       z.coerce.number().min(1, 'Fournisseur requis'),
   payment_method: z.string().default('bank'),
+  currency:       z.string().default('MAD'),
+  exchange_rate:  z.coerce.number().min(0.0001).default(1),
+  global_discount: z.coerce.number().min(0).max(100).default(0),
   notes:          z.string().optional(),
   lines: z.array(z.object({
     product_id:  z.number().optional(),
@@ -52,14 +64,24 @@ export default function PurchaseInvoiceForm({ onSaved, onCancel, editDocId, defa
     resolver: zodResolver(schema),
     defaultValues: {
       date: new Date().toISOString().split('T')[0],
+      due_date: addDays(30),
       payment_method: 'bank',
+      currency: 'MAD',
+      exchange_rate: 1,
+      global_discount: 0,
       lines: [{ quantity: 1, unit_price: 0, discount: 0, tva_rate: getDefaultTva() }],
     },
   })
 
   const { fields, append, remove } = useFieldArray({ control, name: 'lines' })
   const lines     = watch('lines')
+  const globalDiscount = watch('global_discount') || 0
   const payMethod = watch('payment_method')
+  
+  // 🔍 DEBUG: تتبع globalDiscount
+  useEffect(() => {
+    console.log('🔍 [PurchaseInvoiceForm] globalDiscount changed:', globalDiscount, 'type:', typeof globalDiscount)
+  }, [globalDiscount])
 
   useEffect(() => {
     api.getProducts({ limit: 500 }).then((r: any) => setProducts(r.rows ?? []))
@@ -67,36 +89,77 @@ export default function PurchaseInvoiceForm({ onSaved, onCancel, editDocId, defa
 
   useEffect(() => {
     if (!defaultValues) return
-    reset({
+    
+    console.log('🔍 [PurchaseInvoiceForm] defaultValues received:', {
+      global_discount: (defaultValues as any).global_discount,
+      date: defaultValues.date,
+      party_id: defaultValues.party_id,
+    })
+    
+    const formData = {
       date:           defaultValues.date           ?? new Date().toISOString().split('T')[0],
       due_date:       (defaultValues as any).due_date       ?? '',
       party_id:       defaultValues.party_id       ?? 0,
       payment_method: (defaultValues as any).payment_method ?? 'bank',
+      currency:       (defaultValues as any).currency       ?? 'MAD',
+      exchange_rate:  (defaultValues as any).exchange_rate  ?? 1,
+      global_discount: (defaultValues as any).global_discount ?? 0,
       notes:          defaultValues.notes          ?? '',
       lines: defaultValues.lines?.length
         ? defaultValues.lines as FormData['lines']
         : [{ quantity: 1, unit_price: 0, discount: 0, tva_rate: getDefaultTva() }],
+    }
+    
+    console.log('🔄 [PurchaseInvoiceForm] Resetting form with:', {
+      global_discount: formData.global_discount,
+      lines_count: formData.lines.length,
     })
-  }, [defaultValues])
+    
+    reset(formData)
+    
+    // ✅ FIX: Force setValue for global_discount with shouldValidate and shouldDirty
+    setTimeout(() => {
+      setValue('global_discount', formData.global_discount, { 
+        shouldValidate: true,
+        shouldDirty: false,
+        shouldTouch: false
+      })
+      console.log('✅ [PurchaseInvoiceForm] Force set global_discount to:', formData.global_discount)
+    }, 100)
+  }, [defaultValues, reset, setValue])
 
   async function onSubmit(data: FormData, confirm: boolean) {
     try {
       if (isEdit) {
-        await api.cancelDocument(editDocId!)
+        const totalHt  = data.lines.reduce((s, l) => s + l.quantity * l.unit_price * (1 - (l.discount ?? 0) / 100), 0)
+        const totalTva = data.lines.reduce((s, l) => { const ht = l.quantity * l.unit_price * (1 - (l.discount ?? 0) / 100); return s + ht * (l.tva_rate ?? 0) / 100 }, 0)
+        const disc = (data.global_discount ?? 0) / 100
+        await api.updateDocument({
+          id: editDocId, date: data.date, party_id: data.party_id, party_type: 'supplier',
+          payment_method: data.payment_method, due_date: data.due_date,
+          global_discount: data.global_discount ?? 0,  // ✅ FIX: إضافة global_discount
+          notes: data.notes, lines: data.lines,
+          total_ht: Math.round(totalHt * (1 - disc) * 100) / 100,
+          total_tva: Math.round(totalTva * (1 - disc) * 100) / 100,
+          total_ttc: Math.round((totalHt + totalTva) * (1 - disc) * 100) / 100,
+        })
+        if (confirm) { await api.confirmDocument(editDocId!); toast('Facture mise à jour et confirmée ✓') }
+        else toast('Brouillon mis à jour ✓')
+        onSaved(); return
       }
       const doc = await api.createDocument({
         type: 'purchase_invoice', date: data.date,
         party_id: data.party_id, party_type: 'supplier',
         lines: data.lines, notes: data.notes,
-        extra: { payment_method: data.payment_method, due_date: data.due_date },
+        extra: { payment_method: data.payment_method, due_date: data.due_date, global_discount: data.global_discount ?? 0 },
         created_by: 1,
           ...(customSeq !== undefined ? { custom_seq: customSeq } : {}),
         }) as any
       if (confirm) {
         await api.confirmDocument(doc.id)
-        toast(isEdit ? 'Facture mise à jour et confirmée ✓' : 'Facture fournisseur enregistrée ✓')
+        toast('Facture fournisseur enregistrée ✓')
       } else {
-        toast(isEdit ? 'Brouillon mis à jour ✓' : 'Brouillon sauvegardé')
+        toast('Brouillon sauvegardé')
       }
       onSaved()
     } catch (e: any) { toast(e.message, 'error') }
@@ -130,9 +193,14 @@ export default function PurchaseInvoiceForm({ onSaved, onCancel, editDocId, defa
           onSeqChange={setCustomSeq}
         />
       </FormField>
-        <FormField label="Date d'échéance">
-          <input {...register('due_date')} className="input" type="date" />
-        </FormField>
+        <DateOffsetField
+          label="Date d'échéance"
+          storageKey="offset_due_date_purchase"
+          defaultDays={30}
+          baseDate={watch('date')}
+          value={watch('due_date')}
+          onChange={(iso) => setValue('due_date', iso)}
+        />
       </div>
 
       <FormField label="Mode de paiement">
@@ -150,11 +218,26 @@ export default function PurchaseInvoiceForm({ onSaved, onCancel, editDocId, defa
         </div>
       </FormField>
 
+      {/* Devise */}
+      <div className="grid grid-cols-2 gap-3">
+        <FormField label="Devise">
+          <select {...register('currency')} className="input">
+            {['MAD','EUR','USD','GBP','AED','CNY','SAR','TND'].map(c => <option key={c}>{c}</option>)}
+          </select>
+        </FormField>
+        {watch('currency') !== 'MAD' && (
+          <FormField label={`Taux (1 ${watch('currency')} = ? MAD)`}>
+            <input {...register('exchange_rate')} className="input" type="number" step="0.0001" min="0.0001" />
+          </FormField>
+        )}
+      </div>
+
       <LinesTable
         fields={fields}
         lines={lines}
         products={products}
         register={register}
+        control={control}
         setValue={setValue}
         onRemove={remove}
         onAdd={() => append({ quantity: 1, unit_price: 0, discount: 0, tva_rate: getDefaultTva() })}
@@ -165,7 +248,20 @@ export default function PurchaseInvoiceForm({ onSaved, onCancel, editDocId, defa
         onProductsRefresh={setProducts}
       />
 
-      <LinesTotals lines={lines} />
+      <LinesTotals lines={lines} globalDiscount={globalDiscount} />
+
+      <div className="flex items-center gap-3 justify-end -mt-2">
+        <label className="text-sm text-gray-500 shrink-0">Remise globale (%)</label>
+        <Controller
+          name="global_discount"
+          control={control}
+          render={({ field }) => (
+            <NumberInput 
+              {...field}
+              className="input w-28 text-right" decimals={2} min="0" max="100" placeholder="0" />
+          )}
+        />
+      </div>
 
       <FormField label="Notes">
         <textarea {...register('notes')} className="input resize-none" rows={2} placeholder="Remarques..." />

@@ -7,6 +7,7 @@ import { toast } from '../../components/ui/Toast'
 import FormField from '../../components/ui/FormField'
 import { PartySelector } from '../../components/ui/PartySelector'
 import { LinesTable, getDefaultTva, LinesTotals } from '../../components/ui/LinesTable'
+import NumberInput from '../../components/ui/NumberInput'
 import type { Product, Document } from '../../types'
 import DocumentNumberField from '../../components/ui/DocumentNumberField'
 
@@ -14,6 +15,7 @@ const schema = z.object({
   date:              z.string().min(1, 'Date requise'),
   party_id:          z.coerce.number().min(1, 'Fournisseur requis'),
   purchase_order_id: z.coerce.number().optional(),
+  global_discount:   z.coerce.number().min(0).max(100).default(0),
   notes:             z.string().optional(),
   lines: z.array(z.object({
     product_id:  z.number().optional(),
@@ -39,12 +41,14 @@ export default function ReceptionForm({ onSaved, onCancel }: Props) {
     resolver: zodResolver(schema),
     defaultValues: {
       date: new Date().toISOString().split('T')[0],
+      global_discount: 0,
       lines: [{ quantity: 1, unit_price: 0, discount: 0, tva_rate: getDefaultTva() }],
     },
   })
 
   const { fields, append, remove } = useFieldArray({ control, name: 'lines' })
   const lines   = watch('lines')
+  const globalDiscount = watch('global_discount') || 0
   const partyId = watch('party_id')
 
   useEffect(() => {
@@ -64,7 +68,7 @@ export default function ReceptionForm({ onSaved, onCancel }: Props) {
         type: 'bl_reception', date: data.date,
         party_id: data.party_id, party_type: 'supplier',
         lines: data.lines, notes: data.notes,
-        extra: { purchase_order_id: data.purchase_order_id || null },
+        extra: { purchase_order_id: data.purchase_order_id || null, global_discount: data.global_discount ?? 0 },
         created_by: 1,
           ...(customSeq !== undefined ? { custom_seq: customSeq } : {}),
         }) as any
@@ -78,8 +82,7 @@ export default function ReceptionForm({ onSaved, onCancel }: Props) {
         }).catch(() => {})
       }
 
-      await api.confirmDocument(doc.id)
-      toast('Bon de réception créé — Mouvement stock en attente ⏳')
+      toast('Bon de réception sauvegardé en brouillon')
       onSaved()
     } catch (e: any) { toast(e.message, 'error') }
   }
@@ -121,6 +124,7 @@ export default function ReceptionForm({ onSaved, onCancel }: Props) {
         lines={lines}
         products={products}
         register={register}
+        control={control}
         setValue={setValue}
         onRemove={remove}
         onAdd={() => append({ quantity: 1, unit_price: 0, discount: 0, tva_rate: getDefaultTva() })}
@@ -132,7 +136,13 @@ export default function ReceptionForm({ onSaved, onCancel }: Props) {
         onProductsRefresh={setProducts}
       />
 
-      <LinesTotals lines={lines} />
+      <LinesTotals lines={lines} globalDiscount={globalDiscount} />
+
+      <div className="flex items-center gap-3 justify-end -mt-2">
+        <label className="text-sm text-gray-500 shrink-0">Remise globale (%)</label>
+        <NumberInput {...register('global_discount')} 
+          className="input w-28 text-right" decimals={2} min="0" max="100" placeholder="0" />
+      </div>
 
       <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg px-4 py-2.5 text-xs text-amber-700 dark:text-amber-400">
         ℹ️ Le mouvement de stock sera créé en attente. Appliquez-le depuis les détails du BR.
@@ -145,7 +155,7 @@ export default function ReceptionForm({ onSaved, onCancel }: Props) {
       <div className="flex gap-3 pt-2 border-t border-gray-100 dark:border-gray-700">
         <button type="button" onClick={onCancel} className="btn-secondary">Annuler</button>
         <button type="submit" disabled={isSubmitting} onClick={handleSubmit(onSubmit)} className="btn-primary flex-1 justify-center">
-          {isSubmitting ? '...' : '✅ Enregistrer réception'}
+          {isSubmitting ? '...' : '💾 Brouillon'}
         </button>
       </div>
     </form>

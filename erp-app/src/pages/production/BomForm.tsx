@@ -1,3 +1,4 @@
+import { fmt } from '../../lib/format'
 import { useState, useEffect } from 'react'
 import { api } from '../../lib/api'
 import { toast } from '../../components/ui/Toast'
@@ -113,7 +114,7 @@ export default function BomForm({ bom, onSaved, onCancel }: Props) {
     }
   }
 
-  const fmt = (n: number) => new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n)
+  // fmt imported from lib/format
 
   return (
     <form onSubmit={e => { e.stopPropagation(); handleSubmit(e) }} className="space-y-5">
@@ -167,7 +168,7 @@ export default function BomForm({ bom, onSaved, onCancel }: Props) {
           <div>
             <label className="block text-sm font-medium mb-1">Coût main d'œuvre (MAD)</label>
             <input value={laborCost} onChange={e => setLaborCost(Number(e.target.value))}
-              className="input" type="number" min="0" step="0.01" />
+              className="input" type="number" step="0.01" min="0" />
           </div>
           <label className="flex items-center gap-2 cursor-pointer select-none mt-1">
             <input type="checkbox" checked={isDefault} onChange={e => setIsDefault(e.target.checked)}
@@ -218,7 +219,7 @@ export default function BomForm({ bom, onSaved, onCancel }: Props) {
                       <input
                         value={line.quantity}
                         onChange={e => setLines(p => p.map((l, idx) => idx === i ? { ...l, quantity: Number(e.target.value) } : l))}
-                        className="input text-xs py-1.5 text-right" type="number" min="0.001" step="0.001"
+                        className="input text-xs py-1.5 text-right" type="number" step="0.01" min="0.01"
                       />
                     </td>
                     <td className="px-3 py-2">

@@ -64,7 +64,8 @@ export const api = {
   createDocument:  (d: unknown)  => call(() => window.api.createDocument(d),  () => mockApi.createDocument()),
   updateDocument:  (d: unknown)  => call(() => window.api.updateDocument(d),  () => mockApi.updateDocument()),
   confirmDocument: (id: number)  => call(() => window.api.confirmDocument(id),() => mockApi.confirmDocument()),
-  cancelDocument:  (id: number)  => call(() => window.api.cancelDocument(id), () => mockApi.cancelDocument()),
+  cancelDocument:  (id: number)  => call(() => window.api.cancelDocument(id), () => Promise.resolve({ success: true, data: null as any })),
+  deleteDraft:     (id: number)  => call(() => (window.api as any).deleteDraft(id),    () => Promise.resolve({ success: true, data: { success: true } })),
   convertDocument: (d: unknown)  => call(() => window.api.convertDocument(d), () => mockApi.convertDocument()),
   linkDocuments:   (d: unknown)  => call(() => window.api.linkDocuments(d),   () => Promise.resolve({ success: true, data: null })),
   getPOReceiptStatus:  (id: number)  => call(() => window.api.getPOReceiptStatus(id),  () => Promise.resolve({ success: true, data: { summary: [], fullyReceived: false, brCount: 0 } })),
@@ -80,19 +81,32 @@ export const api = {
       : Promise.resolve({ success: true, data: [] }),
     () => Promise.resolve({ success: true, data: [] })
   ),
-  getCancelImpact:     (id: number)  => call(() => window.api.getCancelImpact(id),     () => Promise.resolve({ impacts: [], docType: '', docStatus: '' })),
+  getCancelImpact:     (id: number)  => call(() => window.api.getCancelImpact(id),     () => Promise.resolve({ success: true, data: { impacts: [], docType: '', docStatus: '' } })),
   cancelWithOptions:   (d: unknown)  => call(() => window.api.cancelWithOptions(d),    () => Promise.resolve({ success: true })),
+  smartEditDocument:   (d: unknown)  => call(() => (window.api as any).smartEditDocument(d),    () => Promise.resolve({ success: true, data: { avoirId: 1, newDocId: 2, newDocNumber: 'F-26-0002' } })),
+  updateSafeFields:    (d: unknown)  => call(() => (window.api as any).updateSafeFields(d),     () => Promise.resolve({ success: true })),
+
+  // Fix Accounting
+  checkCancelledInvoicesStatus: () => call(() => (window.api as any).checkCancelledInvoicesStatus(), () => Promise.resolve({ success: true, data: { stats: { total_cancelled: 0, with_reverse_entries: 0, without_reverse_entries: 0, fix_percentage: '100' }, needs_fix: [], needs_fix_count: 0, has_imbalances: false } })),
+  fixCancelledInvoicesAccounting: () => call(() => (window.api as any).fixCancelledInvoicesAccounting(), () => Promise.resolve({ success: true, data: { success: true, message: 'تم الإصلاح', fixed: 0, details: [], balanced: true } })),
 
   // Payments
   getPayments:     (f?: unknown) => call(() => window.api.getPayments(f),    () => mockApi.getPayments()),
   createPayment:   (d: unknown)  => call(() => window.api.createPayment(d),  () => mockApi.createPayment()),
   updatePayment:   (d: unknown)  => call(() => window.api.updatePayment(d),  () => mockApi.updatePayment()),
+  cancelPayment:   (d: unknown)  => call(() => (window.api as any).cancelPayment(d), () => Promise.resolve({ success: true, data: { success: true } })),
   getPaymentPaidAmount: (id: number) => call(() => window.api.getPaymentPaidAmount(id), () => Promise.resolve({ success: true, data: { total: 0 } })),
 
   // Accounting
   getAccounts:       (f?: unknown) => call(() => window.api.getAccounts(f),       () => mockApi.getAccounts()),
   getJournalEntries: (f?: unknown) => call(() => window.api.getJournalEntries(f), () => mockApi.getJournalEntries()),
   createManualEntry: (d: unknown)  => call(() => window.api.createManualEntry(d), () => mockApi.createManualEntry()),
+  
+  // Accounting Periods
+  getAccountingPeriods:    () => call(() => (window.api as any).getAccountingPeriods(),    () => Promise.resolve({ success: true, data: [] })),
+  createAccountingPeriod:  (d: unknown) => call(() => (window.api as any).createAccountingPeriod(d),  () => Promise.resolve({ success: true, data: { id: 1 } })),
+  updateAccountingPeriod:  (d: unknown) => call(() => (window.api as any).updateAccountingPeriod(d),  () => Promise.resolve({ success: true, data: { success: true } })),
+  deleteAccountingPeriod:  (id: number) => call(() => (window.api as any).deleteAccountingPeriod(id), () => Promise.resolve({ success: true, data: { success: true } })),
   getGrandLivre:     (f: unknown)  => call(() => window.api.getGrandLivre(f),     () => mockApi.getGrandLivre()),
   getBalance:        (f?: unknown) => call(() => window.api.getBalance(f),        () => mockApi.getBalance()),
   getTvaDeclaration: (f: unknown)  => call(() => window.api.getTvaDeclaration(f), () => mockApi.getTvaDeclaration()),
@@ -100,10 +114,10 @@ export const api = {
   closePeriod:       (id: number) => call(() => window.api.closePeriod(id), () => mockApi.closePeriod()),
 
   // Purchases (يستخدم documents handler)
-  getPurchaseOrders:   (f?: unknown) => call(() => window.api.getPurchaseOrders(f),   () => mockApi.getDocuments()),
-  createPurchaseOrder: (d: unknown)  => call(() => window.api.createPurchaseOrder(d), () => mockApi.createDocument()),
-  confirmReception:    (id: unknown) => call(() => window.api.confirmReception(id),   () => mockApi.confirmDocument()),
-  createImportInvoice: (d: unknown)  => call(() => window.api.createImportInvoice(d), () => mockApi.createDocument()),
+  getPurchaseOrders:   (f?: unknown) => call(() => (window.api as any).getPurchaseOrders(f),   () => mockApi.getDocuments()),
+  createPurchaseOrder: (d: unknown)  => call(() => (window.api as any).createPurchaseOrder(d), () => mockApi.createDocument()),
+  confirmReception:    (id: unknown) => call(() => (window.api as any).confirmReception(id),   () => mockApi.confirmDocument()),
+  createImportInvoice: (d: unknown)  => call(() => (window.api as any).createImportInvoice(d), () => mockApi.createDocument()),
 
   // Reports
   getReport:       (d: unknown) => call(() => window.api.getReport(d), () => mockApi.getReport()),
@@ -135,7 +149,7 @@ export const api = {
   pdfGetHtml:      (id: number)  => call(() => window.api.pdfGetHtml(id),    () => Promise.resolve({ success: true, data: { html: '', number: 'preview' } })),
   printDocument:   (id: number)  => call(() => window.api.printDocument(id), () => Promise.resolve({ success: true })),
   generatePdf:         (d: unknown) => call(() => window.api.generatePdf(d),         () => mockApi.generatePdf()),
-  generatePdfFromHtml: (d: unknown) => call(() => window.api.generatePdfFromHtml(d), () => Promise.resolve({ success: true, data: null })),
+  generatePdfFromHtml: (d: unknown) => call(() => (window.api as any).generatePdfFromHtml(d), () => Promise.resolve({ success: true, data: null })),
 
   // Excel
   excelExportDocuments: (f: unknown) => call(() => window.api.excelExportDocuments(f), () => mockApi.generatePdf()),
@@ -206,4 +220,5 @@ export const api = {
   sequencesSet:     (d: unknown) => call(() => (window.api as any).sequencesSet(d), () => Promise.resolve({ success: true, data: null })),
   sequencesGetNext: (d: unknown) => call(() => (window.api as any).sequencesGetNext(d), () => Promise.resolve({ success: true, data: { next: 1, year: new Date().getFullYear() % 100 } })),
   sequencesCheck:   (d: unknown) => call(() => (window.api as any).sequencesCheck(d), () => Promise.resolve({ success: true, data: { available: true } })),
+  sequencesGetRecycled: (t: string) => call(() => (window.api as any).sequencesGetRecycled(t), () => Promise.resolve({ success: true, data: null })),
 }

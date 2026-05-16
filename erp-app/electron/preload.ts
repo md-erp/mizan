@@ -51,6 +51,7 @@ const api = {
   updateDocument:     (data: unknown)     => ipcRenderer.invoke('documents:update', data),
   confirmDocument:    (id: number)        => ipcRenderer.invoke('documents:confirm', id),
   cancelDocument:     (id: number)        => ipcRenderer.invoke('documents:cancel', id),
+  deleteDraft:        (id: number)        => ipcRenderer.invoke('documents:deleteDraft', id),
   convertDocument:    (data: unknown)     => ipcRenderer.invoke('documents:convert', data),
   linkDocuments:      (data: unknown)     => ipcRenderer.invoke('documents:link', data),
   getPOReceiptStatus:   (id: number)        => ipcRenderer.invoke('documents:getPOReceiptStatus', id),
@@ -58,11 +59,14 @@ const api = {
   getDocumentTimeline:  (id: number)        => ipcRenderer.invoke('documents:getTimeline', id),
   getCancelImpact:      (id: number)        => ipcRenderer.invoke('documents:getCancelImpact', id),
   cancelWithOptions:    (data: unknown)     => ipcRenderer.invoke('documents:cancelWithOptions', data),
+  smartEditDocument:    (data: unknown)     => ipcRenderer.invoke('documents:smartEdit', data),
+  updateSafeFields:     (data: unknown)     => ipcRenderer.invoke('documents:updateSafeFields', data),
 
   // --- Payments ---
   getPayments:        (filters?: unknown) => ipcRenderer.invoke('payments:getAll', filters),
   createPayment:      (data: unknown)     => ipcRenderer.invoke('payments:create', data),
   updatePayment:      (data: unknown)     => ipcRenderer.invoke('payments:update', data),
+  cancelPayment:      (data: unknown)     => ipcRenderer.invoke('payments:cancel', data),
   getPaymentPaidAmount: (docId: number)   => ipcRenderer.invoke('payments:getPaidAmount', docId),
 
   // --- Purchases (يستخدم نفس documents handler) ---
@@ -95,6 +99,12 @@ const api = {
   getTvaDeclaration:  (filters?: unknown) => ipcRenderer.invoke('accounting:getTva', filters),
   getPeriods:         ()                  => ipcRenderer.invoke('accounting:getPeriods'),
   closePeriod:        (id: number)        => ipcRenderer.invoke('accounting:closePeriod', id),
+  
+  // Accounting Periods
+  getAccountingPeriods:   () => ipcRenderer.invoke('accounting:getPeriods'),
+  createAccountingPeriod: (data: unknown) => ipcRenderer.invoke('accounting:createPeriod', data),
+  updateAccountingPeriod: (data: unknown) => ipcRenderer.invoke('accounting:updatePeriod', data),
+  deleteAccountingPeriod: (id: number) => ipcRenderer.invoke('accounting:deletePeriod', id),
 
   // --- Reports ---
   getReport:          (data: unknown)     => ipcRenderer.invoke('reports:get', data),
@@ -174,10 +184,15 @@ const api = {
   updateInstallLocal: (d: unknown) => ipcRenderer.invoke('update:installLocal', d),
 
   // --- Document Sequences ---
-  sequencesGetAll:  ()           => ipcRenderer.invoke('sequences:getAll'),
-  sequencesSet:     (d: unknown) => ipcRenderer.invoke('sequences:set', d),
-  sequencesGetNext: (d: unknown) => ipcRenderer.invoke('sequences:getNext', d),
-  sequencesCheck:   (d: unknown) => ipcRenderer.invoke('sequences:check', d),
+  sequencesGetAll:      ()           => ipcRenderer.invoke('sequences:getAll'),
+  sequencesSet:         (d: unknown) => ipcRenderer.invoke('sequences:set', d),
+  sequencesGetNext:     (d: unknown) => ipcRenderer.invoke('sequences:getNext', d),
+  sequencesCheck:       (d: unknown) => ipcRenderer.invoke('sequences:check', d),
+  sequencesGetRecycled: (t: string)  => ipcRenderer.invoke('sequences:getRecycled', t),
+
+  // --- Fix Accounting ---
+  checkCancelledInvoicesStatus: () => ipcRenderer.invoke('fix:checkCancelledInvoicesStatus'),
+  fixCancelledInvoicesAccounting: () => ipcRenderer.invoke('fix:cancelledInvoicesAccounting'),
 
   // --- Push Notifications from Main ─────────────────────────
   onSyncUpdated:  (cb: (data: unknown) => void) => {

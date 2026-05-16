@@ -1,3 +1,4 @@
+import { fmt } from '../../lib/format'
 import { useEffect, useState, useCallback } from 'react'
 import { api } from '../../lib/api'
 import { toast } from '../../components/ui/Toast'
@@ -5,6 +6,7 @@ import Pagination from '../../components/ui/Pagination'
 import Drawer from '../../components/ui/Drawer'
 import ConfirmDialog from '../../components/ui/ConfirmDialog'
 import DocumentDetail from '../../components/DocumentDetail'
+import { movementRowBg } from '../../lib/rowBg'
 import type { StockMovement } from '../../types'
 import DocLink from '../../components/ui/DocLink'
 
@@ -81,25 +83,7 @@ export default function MovementsList() {
     }
   }
 
-  const fmt = (n: number) => new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n)
-
-  const DOC_TYPE_LABELS: Record<string, string> = {
-    invoice: 'Facture', quote: 'Devis', bl: 'Bon de livraison',
-    proforma: 'Proforma', avoir: 'Avoir', purchase_order: 'Bon de commande',
-    bl_reception: 'Réception', purchase_invoice: 'Facture achat', import_invoice: 'Facture import',
-  }
-
-  function getSource(m: StockMovement): { text: string; clickable: boolean } {
-    if (m.document_id) {
-      const typeLabel = m.document_type ? (DOC_TYPE_LABELS[m.document_type] ?? m.document_type) : 'Document'
-      const num = m.document_number ?? `#${m.document_id}`
-      return { text: `${typeLabel} ${num}`, clickable: true }
-    }
-    if (m.production_id)     return { text: `Ordre de prod. #${m.production_id}`, clickable: false }
-    if (m.transformation_id) return { text: `Transformation #${m.transformation_id}`, clickable: false }
-    if (m.manual_ref)        return { text: m.manual_ref, clickable: false }
-    return { text: '—', clickable: false }
-  }
+  // fmt imported from lib/format
 
   const filtered = rows.filter(m =>
     !search || m.product_name?.toLowerCase().includes(search.toLowerCase()) ||
@@ -173,7 +157,7 @@ export default function MovementsList() {
               </td></tr>
             )}
             {!loading && filtered.map(m => (
-              <tr key={m.id} className="group hover:bg-gray-50 dark:hover:bg-gray-700/30 divide-x divide-gray-100 dark:divide-gray-700">
+              <tr key={m.id} className={`group transition-colors divide-x divide-gray-100 dark:divide-gray-700 ${movementRowBg(m.applied ? 1 : 0, m.type as 'in' | 'out')}`}>
                 {/* Date */}
                 <td className="px-2 py-3 text-center align-middle text-gray-500 text-xs whitespace-nowrap">
                   {new Date(m.date).toLocaleDateString('fr-FR')}

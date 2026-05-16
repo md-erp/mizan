@@ -4,6 +4,7 @@ import Modal from './Modal'
 import ProductForm from '../forms/ProductForm'
 import { api } from '../../lib/api'
 import { toast } from './Toast'
+import { fmt } from '../../lib/format'
 import type { Product } from '../../types'
 
 interface Props {
@@ -32,7 +33,7 @@ export function ProductSelector({
     sub: `${p.code} · ${p.unit}`,
     extra:
       p.sale_price > 0
-        ? `${new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(p.sale_price)} MAD`
+        ? `${fmt(p.sale_price)} MAD`
         : undefined,
     badge:
       p.stock_quantity <= (p.min_stock ?? 0) && p.min_stock > 0 ? '⚠' : undefined,

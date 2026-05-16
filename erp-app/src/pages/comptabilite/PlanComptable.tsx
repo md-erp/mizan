@@ -33,6 +33,7 @@ export default function PlanComptable() {
   const [loading, setLoading]   = useState(false)
   const [expanded, setExpanded] = useState<Set<number>>(new Set([1,2,3,4,5,6,7]))
   const [modal, setModal]       = useState(false)
+  const [editAccount, setEditAccount] = useState<Account | null>(null)
   const [saving, setSaving]     = useState(false)
   const [form, setForm]         = useState({ code: '', name: '', type: 'asset', class: 3 })
   const [formError, setFormError] = useState('')
@@ -59,9 +60,16 @@ export default function PlanComptable() {
     }
     setSaving(true)
     try {
-      await (api as any).createAccount(form)
-      toast(`Compte ${form.code} créé`)
+      if (editAccount) {
+        // تعديل حساب موجود (غير نظامي)
+        await (api as any).createAccount({ ...form, id: editAccount.id, _update: true })
+        toast(`Compte ${form.code} modifié`)
+      } else {
+        await (api as any).createAccount(form)
+        toast(`Compte ${form.code} créé`)
+      }
       setModal(false)
+      setEditAccount(null)
       setForm({ code: '', name: '', type: 'asset', class: 3 })
       load()
     } catch (e: any) {
@@ -69,6 +77,20 @@ export default function PlanComptable() {
     } finally {
       setSaving(false)
     }
+  }
+
+  function openEdit(a: Account) {
+    setEditAccount(a)
+    setForm({ code: a.code, name: a.name, type: a.type, class: a.class })
+    setFormError('')
+    setModal(true)
+  }
+
+  function openCreate() {
+    setEditAccount(null)
+    setForm({ code: '', name: '', type: 'asset', class: 3 })
+    setFormError('')
+    setModal(true)
   }
 
   const filtered = accounts.filter(a =>
@@ -87,7 +109,7 @@ export default function PlanComptable() {
         <input value={search} onChange={e => setSearch(e.target.value)}
           className="input max-w-xs" placeholder="Rechercher par code ou nom..." />
         <span className="text-sm text-gray-500">{accounts.length} comptes</span>
-        <button onClick={() => setModal(true)} className="btn-primary btn-sm ml-auto">
+        <button onClick={openCreate} className="btn-primary btn-sm ml-auto">
           + Nouveau compte
         </button>
       </div>
@@ -129,6 +151,7 @@ export default function PlanComptable() {
                       <th className="px-4 py-2 text-left font-medium text-gray-500">Intitulé</th>
                       <th className="px-4 py-2 text-center font-medium text-gray-500 w-28">Type</th>
                       <th className="px-4 py-2 text-center font-medium text-gray-500 w-16">Système</th>
+                      <th className="px-4 py-2 w-10"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
@@ -140,6 +163,14 @@ export default function PlanComptable() {
                         <td className="px-4 py-2 text-center">
                           {a.is_system ? <span className="text-xs text-gray-400" title="Compte système">🔒</span> : null}
                         </td>
+                        <td className="px-4 py-2 text-center">
+                          {!a.is_system && (
+                            <button onClick={() => openEdit(a)}
+                              className="w-6 h-6 flex items-center justify-center rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400 hover:text-primary transition-colors text-xs">
+                              ✏️
+                            </button>
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -150,8 +181,8 @@ export default function PlanComptable() {
         })}
       </div>
 
-      {/* Modal nouveau compte */}
-      <Modal open={modal} onClose={() => { setModal(false); setFormError('') }} title="Nouveau compte">
+      <Modal open={modal} onClose={() => { setModal(false); setFormError(''); setEditAccount(null) }}
+        title={editAccount ? `Modifier ${editAccount.code}` : 'Nouveau compte'}>
         <form onSubmit={e => { e.stopPropagation(); handleCreate(e) }} className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -187,10 +218,10 @@ export default function PlanComptable() {
             </div>
           )}
           <div className="flex gap-3 pt-2 border-t border-gray-100 dark:border-gray-700">
-            <button type="button" onClick={() => { setModal(false); setFormError('') }}
+            <button type="button" onClick={() => { setModal(false); setFormError(''); setEditAccount(null) }}
               className="btn-secondary flex-1 justify-center">Annuler</button>
             <button type="submit" disabled={saving} className="btn-primary flex-1 justify-center">
-              {saving ? '...' : '+ Créer le compte'}
+              {saving ? '...' : editAccount ? '💾 Modifier' : '+ Créer le compte'}
             </button>
           </div>
         </form>

@@ -9,6 +9,7 @@ const electron_1 = require("electron");
 const path_1 = require("path");
 const fs_1 = require("fs");
 const adm_zip_1 = __importDefault(require("adm-zip"));
+const connection_1 = require("../database/connection");
 function registerBackupHandlers() {
     (0, index_1.handle)('backup:create', () => {
         const userData = electron_1.app.getPath('userData');
@@ -16,7 +17,8 @@ function registerBackupHandlers() {
         (0, fs_1.mkdirSync)(backupDir, { recursive: true });
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
         const backupPath = (0, path_1.join)(backupDir, `erp-backup-${timestamp}.db`);
-        (0, fs_1.copyFileSync)((0, path_1.join)(userData, 'erp.db'), backupPath);
+        // استخدام VACUUM INTO لدمج WAL وإنشاء نسخة نظيفة ومكتملة
+        (0, connection_1.getDb)().exec(`VACUUM INTO '${backupPath}'`);
         // الاحتفاظ بآخر 30 نسخة فقط
         const backups = (0, fs_1.readdirSync)(backupDir)
             .filter(f => f.endsWith('.db'))
@@ -50,6 +52,12 @@ function registerBackupHandlers() {
         const safetyPath = (0, path_1.join)(userData, `erp-before-restore-${Date.now()}.db`);
         (0, fs_1.copyFileSync)(dbPath, safetyPath);
         (0, fs_1.copyFileSync)(backupPath, dbPath);
+        // إغلاق الاتصال القديم وإعادة تهيئة قاعدة البيانات المستعادة
+        (0, connection_1.closeDatabase)();
+        (0, connection_1.initDatabase)();
+        // إعادة تحميل النافذة
+        const win = electron_1.BrowserWindow.getFocusedWindow() ?? electron_1.BrowserWindow.getAllWindows()[0];
+        win?.webContents.reload();
         return { success: true, safetyBackup: safetyPath };
     });
     // ── Export complet (DB + pièces jointes) → ZIP ──────────────────────────
@@ -63,10 +71,14 @@ function registerBackupHandlers() {
         if (canceled || !filePath)
             return { canceled: true };
         const zip = new adm_zip_1.default();
-        // 1. Base de données
+        // 1. Base de données — استخدام VACUUM INTO لدمج WAL وضمان نسخة مكتملة
         const dbPath = (0, path_1.join)(userData, 'erp.db');
-        if ((0, fs_1.existsSync)(dbPath))
-            zip.addLocalFile(dbPath, '', 'erp.db');
+        if ((0, fs_1.existsSync)(dbPath)) {
+            const tmpDb = (0, path_1.join)(userData, `erp-export-tmp-${Date.now()}.db`);
+            (0, connection_1.getDb)().exec(`VACUUM INTO '${tmpDb}'`);
+            zip.addLocalFile(tmpDb, '', 'erp.db');
+            (0, fs_1.unlinkSync)(tmpDb);
+        }
         // 2. Pièces jointes
         const attachDir = (0, path_1.join)(userData, 'attachments');
         if ((0, fs_1.existsSync)(attachDir))
@@ -111,6 +123,12 @@ function registerBackupHandlers() {
         if (attachEntries.length > 0) {
             zip.extractEntryTo('attachments/', userData, false, true);
         }
+        // إغلاق الاتصال القديم وإعادة تهيئة قاعدة البيانات الجديدة
+        (0, connection_1.closeDatabase)();
+        (0, connection_1.initDatabase)();
+        // إعادة تحميل النافذة لتطبيق البيانات الجديدة
+        const win = electron_1.BrowserWindow.getFocusedWindow() ?? electron_1.BrowserWindow.getAllWindows()[0];
+        win?.webContents.reload();
         return { success: true };
     });
 }

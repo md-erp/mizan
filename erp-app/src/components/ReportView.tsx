@@ -1,3 +1,4 @@
+import { fmt } from '../lib/format'
 /**
  * ReportView — مكون تقارير مشترك يُستخدم في كل وحدة
  * يقبل قائمة تقارير خاصة بالوحدة ويعرضها مع فلاتر وتصدير Excel
@@ -45,7 +46,7 @@ function formatCell(key: string, val: any): string {
   if (val === null || val === undefined) return '—'
   if (typeof val === 'number') {
     if (key.includes('rate') || key.includes('pct') || key === 'is_low') return String(val)
-    return new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(val)
+    return fmt(val)
   }
   if (typeof val === 'string' && val.match(/^\d{4}-\d{2}-\d{2}/)) {
     return new Date(val).toLocaleDateString('fr-FR')
@@ -113,7 +114,7 @@ export default function ReportView({ reports, title }: Props) {
     ? Object.keys(data[0]).filter(k => !k.startsWith('_'))
     : []
 
-  const fmt = (n: number) => new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n)
+  // fmt imported from lib/format
 
   // Calcul totaux pour colonnes numériques
   const numericKeys = visibleKeys.filter(k =>

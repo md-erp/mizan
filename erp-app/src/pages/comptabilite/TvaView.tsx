@@ -1,6 +1,8 @@
-import { useState } from 'react'
+import { fmt } from '../../lib/format'
+import { useState, useEffect } from 'react'
 import { api } from '../../lib/api'
 import { toast } from '../../components/ui/Toast'
+import PrintPreviewModal from '../../components/ui/PrintPreviewModal'
 
 function getCurrentMonthRange() {
   const now = new Date()
@@ -16,6 +18,7 @@ export default function TvaView() {
   const [loading, setLoading] = useState(false)
   const [startDate, setStartDate] = useState(range.start)
   const [endDate, setEndDate] = useState(range.end)
+  const [previewHtml, setPreviewHtml] = useState<string | null>(null)
 
   async function load() {
     if (!startDate || !endDate) return
@@ -26,7 +29,13 @@ export default function TvaView() {
     } finally { setLoading(false) }
   }
 
-  const fmt = (n: number) => new Intl.NumberFormat('fr-MA', { minimumFractionDigits: 2 }).format(n)
+  useEffect(() => {
+    const h = () => load()
+    window.addEventListener('app:refresh', h)
+    return () => window.removeEventListener('app:refresh', h)
+  }, [startDate, endDate])
+
+  // fmt imported from lib/format
 
   return (
     <div className="flex flex-col gap-4">
@@ -52,7 +61,7 @@ export default function TvaView() {
                 toast('Fichier Excel enregistré ✓')
               } catch (e: any) { toast(e.message, 'error') }
             }} className="btn-secondary btn-sm">📊 Excel</button>
-            <button onClick={async () => {
+            <button onClick={() => {
               const html = `
                 <html><head><title>Déclaration TVA</title>
                 <style>
@@ -68,7 +77,7 @@ export default function TvaView() {
                   @page { size: A4; margin: 15mm; }
                 </style></head><body>
                 <h2>Déclaration TVA</h2>
-                <div class="period">Période: ${startDate} → ${endDate}</div>
+                <div class="period">Période: ${startDate} → ${endDate} | Généré le ${new Date().toLocaleDateString('fr-FR')}</div>
                 <table>
                   <tr><th>TVA Facturée (Collectée)</th><th style="text-align:right">Montant</th></tr>
                   ${(data.collectee ?? []).map((r: any) => `<tr><td>${r.tva_rate}</td><td style="text-align:right">${fmt(r.amount)} MAD</td></tr>`).join('')}
@@ -86,10 +95,7 @@ export default function TvaView() {
                 </div>
                 </body></html>
               `
-              try {
-                await api.generatePdfFromHtml({ html, filename: `TVA-${startDate}-${endDate}.pdf` })
-                toast('PDF enregistré ✓')
-              } catch (e: any) { toast(e.message, 'error') }
+              setPreviewHtml(html)
             }} className="btn-secondary btn-sm">📄 PDF</button>
           </div>
         )}
@@ -181,6 +187,15 @@ export default function TvaView() {
           <div className="text-4xl mb-3">🧾</div>
           <div>Sélectionnez une période pour calculer la TVA</div>
         </div>
+      )}
+
+      {previewHtml && (
+        <PrintPreviewModal
+          html={previewHtml}
+          title={`Déclaration TVA — ${startDate} → ${endDate}`}
+          filename={`TVA-${startDate}-${endDate}.pdf`}
+          onClose={() => setPreviewHtml(null)}
+        />
       )}
     </div>
   )
